@@ -42,6 +42,11 @@ Beim Start wählst du zwischen **ReShade-Presets** und **Mod-Studio**. Im Mod-St
 - **Pack bauen**: eine einzige RPF mit `assembly.xml` – optional ohne Konflikt-Verlierer
 - Geschützte/verschlüsselte Mods werden erkannt und nicht angetastet
 - **Texturen bearbeiten (YTD)**: Vorschau aller Texturen, Export als PNG/DDS, Textur ersetzen – dein Bild wird automatisch auf Größe, Format (DXT1/DXT5/BC7 …) und Mipmaps des Originals gebracht
+- **Übersicht**: alle Mods als Karten mit Steckbrief (was sie ändern: Wetter, Lichter, Texturen, Fahrzeuge …) und den nächsten Schritten
+- **Textur-Galerie**: alle Texturen einer Mod als Bilder, nach Bereichen (Himmel, Wasser, Fahrzeuglichter …), mit **Vorher/Nachher-Vergleich** zwischen zwei Mods
+- **Wetter-Ansicht**: jede Wetterlage (Timecycle) als Farbbänder und Kurven über 24 Stunden – zwei Mods direkt übereinander vergleichen
+- **visualsettings-Tabelle** mit Erklärungen und farbig markierten Unterschieden
+- **3D-Vorschau** von Modellen (.ydr/.yft/.ydd) zum Drehen und Zoomen
 - **Fusionieren**: mehrere Mods wählen und pro Datei per Knopf entscheiden, von welcher Mod sie kommt – oder ganze Bereiche weglassen
 - **Prüfen & Exportieren**: vor dem Bauen werden Quellen, Texturen/Modelle und XML-Dateien geprüft, danach wird das fertige Pack nachkontrolliert
 

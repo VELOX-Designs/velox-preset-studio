@@ -310,7 +310,7 @@ async function msFolderTab(body) {
   if (!data.items.length) { el.append(h("div", { class: "empty" }, L("Ordner ist leer.", "Folder is empty."))); return; }
   const ICON = { dir: "📁", foldermod: "🧩", rpf: "📦", oiv: "🧩", ytd: "🖼️", image: "🖼️", text: "📄", zip: "🗜️", other: "📄" };
   const abs = it => MS.state.workspace + "\\" + it.rel.replace(/\//g, "\\");
-  const idOf = it => /^mods\//i.test(it.rel) && it.rel.split("/").length === 2 ? it.name : it.rel;
+  const idOf = it => /^mods\//i.test(it.rel) && it.rel.split("/").length === 2 ? it.name : it.rel.includes("/") ? it.rel : "./" + it.rel;
   const list = h("div", { class: "fb-list" });
   for (const it of data.items) {
     const acts = [];

@@ -8,7 +8,8 @@ const rpf = require('./rpf');
 const zip = require('./zip');
 
 let ctx = { settings: null, save: null, progress: () => { }, nativeImage: null };
-function init(o) { Object.assign(ctx, o); }
+const modviz = require('./modviz');
+function init(o) { Object.assign(ctx, o); modviz.init({ modPath: (id) => modPath(id), modInfo: (f) => modInfo(f), loadProject: () => loadProject(), categoryOf: (t, s2) => categoryOf(t, s2), get nativeImage() { return ctx.nativeImage; } }); }
 const S = () => ctx.settings();
 const ws = () => S().msWorkspace || '';
 const modsDir = () => path.join(ws(), 'Mods');
@@ -21,6 +22,7 @@ const liveModsDir = () => path.join(process.env.LOCALAPPDATA || '', 'FiveM', 'Fi
 // A mod id is either a file name in Mods/ (a copy) or a path relative to the workspace (used in place, read only).
 const isInPlace = (id) => /[\\/]/.test(String(id || ''));
 const modName = (id) => path.basename(String(id || ''));
+const relKey = (id) => String(id || '').replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
 function modPath(id) {
   const p = isInPlace(id) ? path.join(ws(), String(id)) : path.join(modsDir(), path.basename(String(id)));
   if (!inside(p, ws())) throw new Error('Pfad außerhalb des Arbeitsordners');
@@ -230,7 +232,7 @@ function browse(rel) {
   const dir = path.join(ws(), rel || '');
   if (!inside(dir, ws())) throw new Error('Nicht erlaubt');
   const p = loadProject();
-  const inProj = new Set(p.mods.map((m) => (isInPlace(m.file) ? m.file.replace(/\\/g, '/').toLowerCase() : 'mods/' + m.file.toLowerCase())));
+  const inProj = new Set(p.mods.map((m) => (isInPlace(m.file) ? relKey(m.file) : 'mods/' + m.file.toLowerCase())));
   const items = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => !(!rel && /^(velox-modstudio\.json|\.velox-cache\.json)$/i.test(e.name))).map((e) => {
     const full = path.join(dir, e.name); const r = path.relative(ws(), full).replace(/\\/g, '/');
     let size = 0; try { if (!e.isDirectory()) size = fs.statSync(full).size; } catch { }
@@ -241,7 +243,7 @@ function browse(rel) {
 function scanWorkspace() {
   needWs();
   const p = loadProject();
-  const inProj = new Set(p.mods.map((m) => (isInPlace(m.file) ? m.file.replace(/\\/g, '/').toLowerCase() : '')));
+  const inProj = new Set(p.mods.map((m) => (isInPlace(m.file) ? relKey(m.file) : '')));
   const hidden = new Set((p.hidden || []).map((x) => x.toLowerCase()));
   const found = [];
   const walkDir = (dir, depth) => {
@@ -265,12 +267,13 @@ function useInPlace(rels) {
   needWs();
   const p = loadProject(); const res = [];
   for (const r0 of rels) {
-    const r = String(r0).replace(/\\/g, '/');
+    let r = String(r0).replace(/\\/g, '/').replace(/^\.\//, '');
     const full = path.join(ws(), r);
+    if (!r.includes('/')) r = './' + r; // files directly in the workspace root still count as in-place
     if (!inside(full, ws()) || !fs.existsSync(full)) { res.push({ file: null, from: r, error: 'Nicht gefunden' }); continue; }
     if (inside(full, modsDir())) continue;
     if (!/\.rpf$/i.test(r)) { res.push({ file: null, from: r, error: 'Nur .rpf kann direkt benutzt werden' }); continue; }
-    if (!p.mods.some((m) => m.file.toLowerCase() === r.toLowerCase())) p.mods.push({ file: r, enabled: true, excluded: [] });
+    if (!p.mods.some((m) => relKey(m.file) === relKey(r))) p.mods.push({ file: r, enabled: true, excluded: [] });
     res.push({ file: r, from: full, inPlace: true });
   }
   saveProject(p);
@@ -743,7 +746,9 @@ async function api(route, q = {}, b = {}) {
     case 'ms/install': return installToFiveM(b.file);
     case 'ms/folder': { needWs(); return { path: { ws: ws(), mods: modsDir(), export: exportDir(), packs: packsDir(), own: ownDir(), live: liveModsDir() }[b.what] || ws() }; }
   }
+  if (route.startsWith('ms/v/')) { needWs(); const v = await modviz.api(route, b || q); if (v !== undefined) return v; }
   throw new Error('Unbekannte Mod-Studio-Aktion: ' + route);
 }
 
-module.exports = { init, api, parseAssembly, textureImage };
+function modTexImage(sp) { needWs(); return modviz.texImage(sp.get('file'), sp.get('path'), +sp.get('i'), +sp.get('size') || 0); }
+module.exports = { init, api, parseAssembly, textureImage, modTexImage };

@@ -1,7 +1,7 @@
 {
   "name": "velox-preset-studio",
   "productName": "VELOX Preset Studio",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "VELOX Preset Studio - ReShade preset editor: build your own presets with sliders, compare, versions and live testing",
   "main": "src/main.js",
   "scripts": {
