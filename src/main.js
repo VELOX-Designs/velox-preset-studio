@@ -46,11 +46,11 @@ app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(
 app.whenReady().then(() => {
   const dataDir = process.env.VPS_DATADIR || path.join(app.getPath('documents'), 'VELOX Preset Studio');
   backend.init({ settingsFile: path.join(app.getPath('userData'), 'settings.json'), dataDir, nativeImage });
-  modstudio.init({ settings: backend.settings, save: backend.saveSettings, progress: (p) => { if (win && !win.isDestroyed()) win.webContents.send('ms-progress', p); } });
+  modstudio.init({ nativeImage, settings: backend.settings, save: backend.saveSettings, progress: (p) => { if (win && !win.isDestroyed()) win.webContents.send('ms-progress', p); } });
   protocol.handle('vps', (req) => {
     const u = new URL(req.url);
     try {
-      const r = backend.imageResponse(u.hostname, u.searchParams);
+      const r = u.hostname === 'ytd' ? modstudio.textureImage(u.searchParams.get('id'), +u.searchParams.get('i'), +u.searchParams.get('size') || 0) : backend.imageResponse(u.hostname, u.searchParams);
       if (!r) return new Response('not found', { status: 404 });
       return new Response(r.data, { headers: { 'content-type': r.type, 'cache-control': 'max-age=60' } });
     } catch (e) { return new Response(String(e.message || e), { status: 500 }); }

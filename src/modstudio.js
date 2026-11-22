@@ -7,7 +7,7 @@ const os = require('os');
 const rpf = require('./rpf');
 const zip = require('./zip');
 
-let ctx = { settings: null, save: null, progress: () => { } };
+let ctx = { settings: null, save: null, progress: () => { }, nativeImage: null };
 function init(o) { Object.assign(ctx, o); }
 const S = () => ctx.settings();
 const ws = () => S().msWorkspace || '';
@@ -263,20 +263,23 @@ function wrapChain(chain, inner) {
   for (let i = chain.length - 1; i >= 0; i--) { const c = chain[i]; x = `<archive path="${esc(c.path)}" createIfNotExist="${esc(c.create || 'False')}" type="${esc(c.type || 'RPF7')}">\n${x}\n</archive>`; }
   return x;
 }
-async function buildPack(opt = {}) {
+const isAR = (o) => o.kind === 'add' || o.kind === 'replace';
+// Plans a pack: which files from which mod, the merged assembly.xml. Used by build and by validation.
+function planPack(opt = {}) {
   needWs();
   const p = loadProject();
   const packName = clean(opt.name || p.pack.name || 'Mein Pack') || 'Mein Pack';
-  p.pack = { ...p.pack, ...opt, name: packName }; saveProject(p);
+  const sel = opt.selection || null; // fusion: { mods:[files], choose:{key: file|''}, extra:{xkey: bool}, own: bool }
   const dropLosers = opt.dropLosers !== false;
-  const conf = conflicts(p);
-  const losers = new Map(); // key -> winning mod file
-  for (const c of conf) losers.set(c.key, c.winner);
-  const enabled = p.mods.filter((m) => m.enabled);
-  const blocked = enabled.filter((m) => { const i = modInfo(m.file); return !i.readable || !i.oiv; });
-  const usable = enabled.filter((m) => !blocked.includes(m));
-  if (!usable.length && !(p.overrides || []).length) throw new Error('Keine verwendbaren Mods im Pack (geschützte oder unbekannte Mods können nicht zusammengeführt werden)');
-  const files = []; const blocks = []; let idx = 0; let skipped = 0;
+  const losers = new Map();
+  if (!sel) for (const c of conflicts(p)) losers.set(c.key, c.winner);
+  const list = sel ? sel.mods.map((f) => p.mods.find((m) => m.file === f) || { file: f, excluded: [] }) : p.mods.filter((m) => m.enabled);
+  const blocked = list.filter((m) => { const i = modInfo(m.file); return !i.readable || !i.oiv; });
+  const usable = list.filter((m) => !blocked.includes(m));
+  const useOwn = sel ? sel.own !== false : true;
+  const overrides = useOwn ? (p.overrides || []) : [];
+  if (!usable.length && !overrides.length) throw new Error('Keine verwendbaren Mods im Pack (geschützte oder unbekannte Mods können nicht zusammengeführt werden)');
+  const files = []; const blocks = []; const kept = []; let idx = 0; let skipped = 0;
   for (const m of usable) {
     idx++;
     const prefix = `m${String(idx).padStart(2, '0')}_${clean(path.basename(m.file, '.rpf')).replace(/\s+/g, '_').slice(0, 40)}`;
@@ -284,38 +287,49 @@ async function buildPack(opt = {}) {
     const l = rpf.list(src);
     const asmE = l.entries.find((e) => e.path.toLowerCase() === 'assembly.xml');
     const a = parseAssembly(rpf.extract(src, asmE).toString('utf8').replace(/^\uFEFF/, ''));
-    // remove excluded ops and (optionally) ops that lose a conflict
-    const drop = a.ops.filter((o) => (o.kind === 'add' || o.kind === 'replace') && ((m.excluded || []).includes(opKey(o)) || (dropLosers && losers.has(opKey(o)) && losers.get(opKey(o)) !== m.file)));
+    let xi = -1;
+    const drop = a.ops.filter((o) => {
+      if (!isAR(o)) { xi++; return !!(sel && sel.extra && sel.extra[`x:${m.file}:${xi}`] === false); }
+      const k = opKey(o);
+      if (sel) return Object.prototype.hasOwnProperty.call(sel.choose || {}, k) && sel.choose[k] !== m.file;
+      return (m.excluded || []).includes(k) || (dropLosers && losers.has(k) && losers.get(k) !== m.file);
+    });
     skipped += drop.length;
     let content = a.content;
     for (const o of [...drop].sort((x, y) => y.start - x.start)) content = content.slice(0, o.start) + content.slice(o.end);
-    // rewrite source paths with the mod prefix
-    content = content.replace(/(<(?:add|replace)\b[^>]*\bsource\s*=\s*")([^"]*)(")/gi, (_, a1, s, a3) => a1 + esc(prefix + '\\' + decode(s).replace(/\//g, '\\')) + a3);
+    content = content.replace(/(<(?:add|replace)\b[^>]*\bsource\s*=\s*")([^"]*)(")/gi, (_, a1, s2, a3) => a1 + esc(prefix + '\\' + decode(s2).replace(/\//g, '\\')) + a3);
     blocks.push(`<!-- ${esc(m.file)} -->\n` + content.trim());
-    // which content files are still referenced?
-    const used = new Set(a.ops.filter((o) => !drop.includes(o) && o.source).map((o) => decode(o.source).replace(/\\/g, '/').toLowerCase()));
+    const keptOps = a.ops.filter((o) => !drop.includes(o) && o.source);
+    const used = new Set(keptOps.map((o) => decode(o.source).replace(/\\/g, '/').toLowerCase()));
     const contentFiles = l.entries.filter((e) => e.type !== 'dir' && /^content\//i.test(e.path) && !l.entries.some((x) => x.nested && e.path.startsWith(x.path + '/')));
+    const byRel = new Map(contentFiles.map((e) => [e.path.slice(8).toLowerCase(), e]));
+    for (const o of keptOps) {
+      const rel = decode(o.source).replace(/\\/g, '/').toLowerCase();
+      kept.push({ mod: m.file, src, source: o.source, target: o.targetRaw || o.target, entry: byRel.get(rel) || null });
+    }
     for (const e of contentFiles) {
       const rel = e.path.slice(8);
       if (!used.has(rel.toLowerCase())) continue;
-      files.push({ path: `content/${prefix}/${rel}`, lazy: { src, entry: e } });
+      files.push({ path: `content/${prefix}/${rel}`, lazy: { src, entry: e }, size: e.csize || e.size || 0 });
     }
   }
-  // own files
   const ownBlocks = [];
-  (p.overrides || []).forEach((o, i) => {
+  overrides.forEach((o, i) => {
     const srcName = `velox_eigene/${String(i + 1).padStart(2, '0')}_${o.file}`;
-    files.push({ path: 'content/' + srcName, file: path.join(ownDir(), o.file) });
+    const fp = path.join(ownDir(), o.file);
+    files.push({ path: 'content/' + srcName, file: fp, size: fs.existsSync(fp) ? fs.statSync(fp).size : 0 });
+    kept.push({ mod: 'Eigene Dateien', own: fp, source: srcName, target: o.target });
     ownBlocks.push(wrapChain(o.chain || [], `<add source="${esc(srcName.replace(/\//g, '\\'))}">${esc(String(o.target).replace(/\//g, '\\'))}</add>`));
   });
-  const desc = `Erstellt mit VELOX Mod-Studio.\nEnthält:\n${usable.map((m) => '- ' + m.file).join('\n')}${(p.overrides || []).length ? `\n- ${p.overrides.length} eigene Dateien` : ''}${p.pack.description ? '\n\n' + p.pack.description : ''}`;
-  const [maj, min] = String(p.pack.version || '1.0').split('.');
+  const meta = { ...p.pack, ...opt };
+  const desc = `Erstellt mit VELOX Mod-Studio.\nEnthält:\n${usable.map((m) => '- ' + m.file).join('\n')}${overrides.length ? `\n- ${overrides.length} eigene Dateien` : ''}${meta.description ? '\n\n' + meta.description : ''}`;
+  const [maj, min] = String(meta.version || '1.0').split('.');
   const asmXml = `<?xml version="1.0" encoding="UTF-8"?>
 <package version="2.2" id="{${cryptoId()}}" target="Five">
 <metadata>
 <name>${esc(packName)}</name>
 <version><major>${+maj || 1}</major><minor>${+min || 0}</minor></version>
-<author><displayName>${esc(p.pack.author || 'VELOX Mod-Studio')}</displayName></author>
+<author><displayName>${esc(meta.author || 'VELOX Mod-Studio')}</displayName></author>
 <description><![CDATA[${desc.replace(/]]>/g, '')}]]></description>
 </metadata>
 <content>
@@ -324,12 +338,124 @@ ${ownBlocks.join('\n')}
 </content>
 </package>
 `;
-  files.unshift({ path: 'assembly.xml', data: Buffer.from(asmXml, 'utf8') });
-  // materialise lazily-read files during build (keeps memory low)
-  const out = path.join(packsDir(), freeName(packsDir(), packName + '.rpf'));
-  const resolved = files.map((f) => (f.lazy ? { path: f.path, get data() { return rpf.extract(f.lazy.src, f.lazy.entry); } } : f));
+  files.unshift({ path: 'assembly.xml', data: Buffer.from(asmXml, 'utf8'), size: asmXml.length });
+  return { p, packName, files, kept, asmXml, usable, blocked, skipped, meta };
+}
+
+// ---- simple XML well-formedness check (tag balance)
+function xmlProblem(text) {
+  const t = text.replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/<\?[\s\S]*?\?>/g, '').replace(/<!DOCTYPE[^>]*>/gi, '');
+  const stack = []; const re = /<(\/?)([A-Za-z_][\w:.-]*)([^>]*?)(\/?)>/g; let m;
+  while ((m = re.exec(t))) {
+    if (m[4] === '/') continue;
+    if (m[1] === '/') { const top = stack.pop(); if (top !== m[2]) return `</${m[2]}> passt nicht zu <${top || '—'}>`; }
+    else stack.push(m[2]);
+  }
+  return stack.length ? `<${stack[stack.length - 1]}> wird nicht geschlossen` : null;
+}
+
+// Checks a planned pack without writing it.
+function validatePlan(plan, deep = true) {
+  const errors = [], warnings = [];
+  for (const m of plan.blocked) warnings.push(`${m.file}: geschützt oder ohne assembly.xml – kann nicht ins Pack`);
+  const asmErr = xmlProblem(plan.asmXml);
+  if (asmErr) errors.push('assembly.xml: ' + asmErr);
+  let checked = 0;
+  const total = plan.kept.length;
+  for (const k of plan.kept) {
+    checked++;
+    if (checked % 25 === 0) ctx.progress({ label: 'Prüfe Dateien', done: checked, total });
+    if (k.own) { if (!fs.existsSync(k.own)) errors.push(`Eigene Datei fehlt: ${path.basename(k.own)}`); continue; }
+    if (!k.entry) { errors.push(`${k.mod}: Quelle „${k.source}“ fehlt im Archiv`); continue; }
+    if (!deep) continue;
+    try {
+      const data = rpf.extract(k.src, k.entry);
+      if (k.entry.type === 'res') {
+        const out = require('zlib').inflateRawSync(data.slice(16));
+        if (out.length !== k.entry.size) warnings.push(`${k.mod}: ${k.source} – Größe passt nicht zu den Ressourcen-Flags`);
+      } else if (/\.(xml|meta)$/i.test(k.source) || (/\.(dat|ymt)$/i.test(k.source) && data.slice(0, 64).toString('latin1').trimStart().startsWith('<'))) {
+        const pr = xmlProblem(data.toString('utf8'));
+        if (pr) errors.push(`${k.mod}: ${k.source} – kaputtes XML (${pr})`);
+      }
+    } catch (e) { errors.push(`${k.mod}: ${k.source} – lässt sich nicht lesen (${e.message})`); }
+    if (errors.length > 40) { errors.push('… weitere Fehler abgeschnitten'); break; }
+  }
+  ctx.progress({ label: 'Prüfe Dateien', done: total, total });
+  // targets that are still provided by several mods
+  const seen = new Map();
+  for (const k of plan.kept) { const key = k.target.toLowerCase(); seen.set(key, (seen.get(key) || 0) + 1); }
+  const dup = [...seen].filter(([, n]) => n > 1).length;
+  if (dup) warnings.push(`${dup} Ziel(e) werden von mehreren Quellen gesetzt – die spätere gewinnt`);
+  // RPF limits
+  const names = new Set(); for (const f of plan.files) for (const part of f.path.split('/')) names.add(part);
+  const nameBytes = [...names].reduce((a, n) => a + Buffer.byteLength(n) + 1, 0);
+  if (nameBytes > 0xffff) errors.push(`Zu viele Dateinamen für eine RPF (${Math.round(nameBytes / 1024)} KB von 64 KB) – weniger Mods/Dateien wählen`);
+  const bytes = plan.files.reduce((a, f) => a + (f.size || 0), 0);
+  if (bytes > 4.0e9) errors.push(`Pack wäre ca. ${(bytes / 1073741824).toFixed(1)} GB – Maximum sind etwa 4 GB`);
+  else if (bytes > 3.5e9) warnings.push(`Pack wird sehr groß (${(bytes / 1073741824).toFixed(1)} GB)`);
+  return { ok: !errors.length, errors, warnings, stats: { mods: plan.usable.length, files: plan.files.length, bytes, skipped: plan.skipped, own: plan.kept.filter((k) => k.own).length } };
+}
+
+function verifyPack(file) {
+  const l = rpf.list(file);
+  const asm = l.entries.find((e) => e.path === 'assembly.xml');
+  if (!asm) return { ok: false, problems: ['assembly.xml fehlt'] };
+  const xml = rpf.extract(file, asm).toString('utf8');
+  const problems = [];
+  const pe = xmlProblem(xml); if (pe) problems.push('assembly.xml: ' + pe);
+  const have = new Set(l.entries.map((e) => e.path.toLowerCase()));
+  const srcs = [...xml.matchAll(/source="([^"]+)"/g)].map((m) => ('content/' + decode(m[1]).replace(/\\/g, '/')).toLowerCase());
+  for (const s2 of srcs) if (!have.has(s2)) problems.push('Quelle fehlt im Pack: ' + s2);
+  return { ok: !problems.length, problems: problems.slice(0, 20), sources: srcs.length, entries: l.entries.length };
+}
+
+async function buildPack(opt = {}) {
+  const plan = planPack(opt);
+  if (!opt.selection) { plan.p.pack = { ...plan.p.pack, ...opt, name: plan.packName }; delete plan.p.pack.selection; saveProject(plan.p); }
+  if (opt.validate !== false) {
+    const v = validatePlan(plan, opt.deep !== false);
+    if (!v.ok) { const e = new Error('Prüfung fehlgeschlagen:\n' + v.errors.slice(0, 8).join('\n')); e.report = v; throw e; }
+  }
+  const out = path.join(packsDir(), freeName(packsDir(), plan.packName + '.rpf'));
+  const resolved = plan.files.map((f) => (f.lazy ? { path: f.path, get data() { return rpf.extract(f.lazy.src, f.lazy.entry); } } : f));
   const r = rpf.build(out, resolved, (d, t) => { if (d % 20 === 0 || d === t) ctx.progress({ label: 'Baue Pack', done: d, total: t }); });
-  return { ok: true, file: out, name: path.basename(out), size: r.size, files: files.length, mods: usable.length, skippedConflicts: skipped, blocked: blocked.map((m) => m.file) };
+  const check = verifyPack(out);
+  return { ok: true, file: out, name: path.basename(out), size: r.size, files: plan.files.length, mods: plan.usable.length, skippedConflicts: plan.skipped, blocked: plan.blocked.map((m) => m.file), verified: check };
+}
+
+// ---- fusion view data
+function categoryOf(target, source) {
+  const t = (target + ' ' + (source || '')).toLowerCase();
+  if (/timecycle|\/w_[a-z]+\.xml|weather|clouds?\b|cloudkf|skyhat/.test(t)) return 'Wetter & Timecycle';
+  if (/visualsettings|graphics\.ytd|postfx/.test(t)) return 'Grafik-Einstellungen';
+  if (/lensflare|corona|light/.test(t)) return 'Lichter & Lens Flares';
+  if (/water/.test(t)) return 'Wasser';
+  if (/\.ypt|ptfx|fx\.dat|decal|blood|explosion|fire/.test(t)) return 'Partikel & Effekte';
+  if (/veh|carcols|carvariation|\.yft|wheel/.test(t)) return 'Fahrzeuge';
+  if (/\.ymap|\.ytyp|vegetation|grass|dlc\.rpf|dlcpacks/.test(t)) return 'Welt & Vegetation';
+  if (/\.ytd/.test(t)) return 'Texturen';
+  if (/\.ydr|\.ydd|\.ybn/.test(t)) return 'Modelle';
+  return 'Sonstiges';
+}
+function fusionData(mods) {
+  needWs();
+  const rows = new Map(); const extras = [];
+  for (const f of mods) {
+    const info = modInfo(path.basename(f));
+    if (!info.readable || !info.oiv) continue;
+    let xi = -1;
+    for (const o of info.ops) {
+      if (!isAR(o)) { xi++; extras.push({ key: `x:${info.file}:${xi}`, mod: info.file, kind: o.kind, target: o.targetRaw || o.target, archive: o.archive, category: categoryOf(o.target, '') }); continue; }
+      const k = opKey(o);
+      if (!rows.has(k)) rows.set(k, { key: k, archive: o.archive, target: o.targetRaw || o.target, category: categoryOf(o.target, o.source), have: {} });
+      rows.get(k).have[info.file] = { kind: o.kind, source: o.source };
+    }
+  }
+  return {
+    mods: mods.map((f) => { const i = modInfo(path.basename(f)); return { file: i.file, readable: i.readable, oiv: i.oiv, enc: i.enc, ops: i.ops.length, size: i.size, name: i.meta?.name || '' }; }),
+    rows: [...rows.values()].sort((a, b) => a.category.localeCompare(b.category) || a.target.localeCompare(b.target)),
+    extras,
+  };
 }
 function cryptoId() { return require('crypto').randomUUID().toUpperCase(); }
 
@@ -345,9 +471,136 @@ async function installToFiveM(packFile) {
   return { ok: true, name, dir: d };
 }
 
+// ------------------------------------------------------------ textures (YTD)
+const ytd = require('./ytd');
+const sessions = new Map(); let sessSeq = 0;
+function sourceTarget(modFile, entryPath) {
+  const info = modInfo(modFile);
+  const rel = entryPath.replace(/^content\//i, '').replace(/\//g, '\\').toLowerCase();
+  const op = info.ops.find((o) => (o.kind === 'add' || o.kind === 'replace') && decode(o.source).replace(/\//g, '\\').toLowerCase() === rel);
+  return op ? { archive: op.archive, target: op.target, targetRaw: op.targetRaw } : null;
+}
+function ytdOpen(b) {
+  needWs();
+  let buf, src;
+  if (b.mod) {
+    const p = path.join(modsDir(), path.basename(b.mod));
+    const l = rpf.list(p);
+    const e = l.entries.find((x) => x.path === b.path);
+    if (!e) throw new Error('Datei nicht im Archiv');
+    buf = rpf.extract(p, e);
+    src = { kind: 'mod', mod: path.basename(b.mod), path: b.path, name: path.basename(b.path), target: sourceTarget(path.basename(b.mod), b.path) };
+  } else if (b.own) {
+    const p = path.join(ownDir(), path.basename(b.own));
+    buf = fs.readFileSync(p);
+    const p2 = loadProject(); const ov = (p2.overrides || []).find((o) => o.file === path.basename(b.own));
+    src = { kind: 'own', own: path.basename(b.own), name: path.basename(b.own), target: ov ? { archive: ov.archive, target: normT(ov.target), targetRaw: ov.target } : null };
+  } else if (b.disk) {
+    buf = fs.readFileSync(b.disk); // read only
+    src = { kind: 'disk', disk: b.disk, name: path.basename(b.disk), target: null };
+  } else throw new Error('Keine Quelle');
+  const y = ytd.parseYtd(buf);
+  const id = String(++sessSeq);
+  sessions.set(id, { id, y, src, changed: new Set(), ver: 0 });
+  if (sessions.size > 6) sessions.delete(sessions.keys().next().value);
+  return ytdState(id);
+}
+function sess(id) { const s = sessions.get(String(id)); if (!s) throw new Error('Textur-Datei ist nicht mehr offen – bitte neu öffnen'); return s; }
+function ytdState(id) {
+  const s = sess(id);
+  return { id: s.id, src: s.src, changed: [...s.changed], ver: s.ver, textures: s.y.textures.map((t) => ({ index: t.index, name: t.name, width: t.width, height: t.height, format: t.format, levels: t.levels, supported: t.supported, size: t.dataSize })) };
+}
+function rgbaToBgra(b) { const o = Buffer.from(b); for (let i = 0; i < o.length; i += 4) { const r = o[i]; o[i] = o[i + 2]; o[i + 2] = r; } return o; }
+function textureImage(id, index, size) { // -> { data, type } for the vps:// protocol
+  const s = sess(id); const t = s.y.textures[index];
+  if (!t || !t.supported) return null;
+  let level = 0;
+  if (size) while (level < t.levels - 1 && Math.max(t.width >> (level + 1), t.height >> (level + 1)) >= size) level++;
+  const m = ytd.textureData(s.y, t, level);
+  const rgba = ytd.decode(t.format, m.w, m.h, m.data);
+  let img = ctx.nativeImage.createFromBitmap(rgbaToBgra(rgba), { width: m.w, height: m.h });
+  if (size && Math.max(m.w, m.h) > size) img = img.resize(m.w >= m.h ? { width: size } : { height: size });
+  return { data: img.toPNG(), type: 'image/png' };
+}
+function ytdExport(b) {
+  const s = sess(b.id);
+  const dir = path.join(exportDir(), 'Texturen', clean(s.src.name.replace(/\.ytd$/i, '')));
+  fs.mkdirSync(dir, { recursive: true });
+  const list = b.all ? s.y.textures : [s.y.textures[b.index]];
+  let n = 0;
+  for (const t of list) {
+    if (!t || !t.supported) continue;
+    if (b.as === 'dds') {
+      fs.writeFileSync(path.join(dir, clean(t.name) + '.dds'), ytd.toDDS(t, s.y.res.data.slice(t.dataOffset, t.dataOffset + t.dataSize)));
+    } else {
+      const m = ytd.textureData(s.y, t, 0);
+      const img = ctx.nativeImage.createFromBitmap(rgbaToBgra(ytd.decode(t.format, m.w, m.h, m.data)), { width: m.w, height: m.h });
+      fs.writeFileSync(path.join(dir, clean(t.name) + '.png'), img.toPNG());
+    }
+    n++;
+  }
+  return { ok: true, files: n, dir };
+}
+function ytdReplace(b) {
+  const s = sess(b.id); const t = s.y.textures[b.index];
+  if (!t || !t.supported) throw new Error('Dieses Texturformat wird nicht unterstützt');
+  const file = String(b.file || '');
+  if (!fs.existsSync(file)) throw new Error('Bild nicht gefunden');
+  let rgba;
+  if (/\.dds$/i.test(file)) {
+    const d = ytd.fromDDS(fs.readFileSync(file));
+    if (d.fmt === t.format && d.w === t.width && d.h === t.height && d.levels >= t.levels && d.data.length >= t.dataSize) {
+      d.data.copy(s.y.res.data, t.dataOffset, 0, t.dataSize); // exact match: take the DDS data as-is
+      s.changed.add(t.index); s.ver++; return ytdState(b.id);
+    }
+    const top = d.data.slice(0, ytd.mipSize(d.fmt, d.w, d.h));
+    rgba = ytd.decode(d.fmt, d.w, d.h, top);
+    if (d.w !== t.width || d.h !== t.height) {
+      const img = ctx.nativeImage.createFromBitmap(rgbaToBgra(rgba), { width: d.w, height: d.h }).resize({ width: t.width, height: t.height, quality: 'best' });
+      rgba = rgbaToBgra(img.toBitmap());
+    }
+  } else {
+    let img = ctx.nativeImage.createFromPath(file);
+    if (img.isEmpty()) throw new Error('Bild konnte nicht gelesen werden (PNG, JPG, BMP oder DDS)');
+    const sz = img.getSize();
+    if (sz.width !== t.width || sz.height !== t.height) img = img.resize({ width: t.width, height: t.height, quality: 'best' });
+    rgba = rgbaToBgra(img.toBitmap());
+  }
+  ytd.replaceTexture(s.y, t, rgba);
+  s.changed.add(t.index); s.ver++;
+  return ytdState(b.id);
+}
+function ytdSave(b) {
+  needWs();
+  const s = sess(b.id);
+  if (!s.changed.size) throw new Error('Keine Änderungen');
+  const out = ytd.saveResource(s.y.res);
+  ytd.parseYtd(out); // sanity: must re-open
+  let name;
+  if (s.src.kind === 'own') { name = s.src.own; fs.writeFileSync(path.join(ownDir(), name), out); }
+  else {
+    name = freeName(ownDir(), s.src.name);
+    fs.writeFileSync(path.join(ownDir(), name), out);
+    if (s.src.target) {
+      const p = loadProject();
+      p.overrides = (p.overrides || []).filter((x) => !(x.archive === s.src.target.archive && normT(x.target) === s.src.target.target));
+      p.overrides.push({ file: name, archive: s.src.target.archive, chain: s.src.kind === 'mod' ? chainFor(s.src.mod, s.src.target.archive) : [], target: s.src.target.targetRaw || s.src.target.target });
+      saveProject(p);
+    }
+    s.src = { kind: 'own', own: name, name, target: s.src.target };
+  }
+  s.changed.clear();
+  return { ok: true, file: name, override: !!s.src.target, size: out.length };
+}
+
 // ------------------------------------------------------------ API
 async function api(route, q = {}, b = {}) {
   switch (route) {
+    case 'ms/ytdopen': return ytdOpen(b);
+    case 'ms/ytdstate': return ytdState(b.id);
+    case 'ms/ytdexport': return ytdExport(b);
+    case 'ms/ytdreplace': return ytdReplace(b);
+    case 'ms/ytdsave': return ytdSave(b);
     case 'ms/state': {
       const has = !!ws() && fs.existsSync(ws());
       return { workspace: has ? ws() : '', recent: S().msRecent || [], liveDir: liveModsDir(), liveExists: fs.existsSync(liveModsDir()), docs: path.join(os.homedir(), 'Documents', 'VELOX Mod-Studio') };
@@ -373,11 +626,14 @@ async function api(route, q = {}, b = {}) {
       if (!inside(f, modsDir())) throw new Error('Nicht erlaubt');
       fs.unlinkSync(f); const p = loadProject(); saveProject(p); return { ok: true };
     }
-    case 'ms/build': return buildPack(b || {});
+    case 'ms/build': try { return await buildPack(b || {}); } catch (e) { if (e.report) return { ok: false, report: e.report, error: e.message }; throw e; }
+    case 'ms/fusion': return fusionData(b.mods || []);
+    case 'ms/validate': { const plan = planPack(b || {}); return validatePlan(plan, b.deep !== false); }
+    case 'ms/verify': return verifyPack(path.join(packsDir(), path.basename(b.file)));
     case 'ms/install': return installToFiveM(b.file);
     case 'ms/folder': { needWs(); return { path: { ws: ws(), mods: modsDir(), export: exportDir(), packs: packsDir(), own: ownDir(), live: liveModsDir() }[b.what] || ws() }; }
   }
   throw new Error('Unbekannte Mod-Studio-Aktion: ' + route);
 }
 
-module.exports = { init, api, parseAssembly };
+module.exports = { init, api, parseAssembly, textureImage };

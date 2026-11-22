@@ -73,7 +73,8 @@ function msRender() {
   const body = h("div", { class: "ms-body" }); root.append(body);
   if (!MS.state?.workspace) { body.append(msWelcome()); return; }
   if (!MS.proj) { body.append(h("div", { class: "empty" }, L("Arbeitsordner konnte nicht geladen werden.", "Could not load workspace."))); return; }
-  ({ mods: msModsTab, conflicts: msConflictsTab, own: msOwnTab, build: msBuildTab })[MS.tab](body);
+  const tabFn = ({ mods: msModsTab, conflicts: msConflictsTab, own: msOwnTab, build: msBuildTab })[MS.tab];
+  if (tabFn) tabFn(body);
 }
 
 // ============================================================ workspace
