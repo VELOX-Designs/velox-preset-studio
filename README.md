@@ -35,6 +35,7 @@ Updates: unten rechts zeigt der Button, ob es eine neue Version gibt – ein Kli
 Beim Start wählst du zwischen **ReShade-Presets** und **Mod-Studio**. Im Mod-Studio stellst du clientseitige Grafikmods (RPF im OIV-Aufbau, `.oiv`) zu einem eigenen Pack zusammen:
 
 - **Eigener Arbeitsordner** – Mods werden hineinkopiert, deine Originale werden nie verändert
+- **Ordner-Ansicht** – durch den Arbeitsordner klicken; gefundene RPFs werden direkt vor Ort benutzt (nur gelesen), OIVs und entpackte OIV-Ordner werden zu Mods; ganze Windows-Ordner einfach reinziehen
 - **RPF / OIV öffnen**, Inhalt durchsuchen, Dateien exportieren (Texturen, Meta-Dateien …)
 - **Konflikte erkennen**: welche Mods dieselbe Spieldatei ersetzen – die Reihenfolge entscheidet, wer gewinnt
 - **Eigene Dateien** (z. B. bearbeitete Texturen) für ein Ziel einsetzen

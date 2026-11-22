@@ -365,3 +365,17 @@ body.dropping #ms::after { content: "Hier ablegen – Dateien werden in den Arbe
 .fu-none { width: 34px; text-align: center; color: #3a3f4a; line-height: 28px; }
 .fu-catbtns { margin: 4px 0 6px; }
 .fu-export { position: sticky; bottom: -18px; z-index: 3; box-shadow: 0 -10px 30px rgba(0,0,0,.5); }
+
+/* ---- 1.4.1 folder explorer ---- */
+.crumbs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.crumbs button.on { border-color: var(--accent); color: #fff; }
+.fb-list { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.fb-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid #1f232b; background: var(--bg2); }
+.fb-row:first-child { border-top: none; }
+.fb-row.is-dir { cursor: pointer; } .fb-row.is-dir:hover { background: var(--bg3); }
+.fb-row.own { opacity: .6; }
+.fb-ic { width: 22px; text-align: center; }
+.fb-row .nm { flex: 1; min-width: 0; } .fb-row .nm b { font-weight: 600; overflow-wrap: anywhere; } .fb-row .nm small { display: block; color: var(--muted); }
+.fb-acts { display: flex; gap: 6px; align-items: center; }
+.found-banner { display: flex; gap: 10px; align-items: center; padding: 12px 14px; margin: 0 0 14px; border-radius: 10px; border: 1px solid rgba(255,170,90,.45); background: rgba(255,170,90,.08); }
+.ms-left .found-banner { margin: 10px 10px 0; flex-wrap: wrap; }

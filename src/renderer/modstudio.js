@@ -3,6 +3,7 @@
 // the live FiveM mods folder is only read / copied from.
 
 const MS = { state: null, proj: null, sel: null, tab: "mods", ops: null, tree: null, treeFilter: "", treeSel: new Set(), progress: null, conflicts: [] };
+const mname = f => String(f || "").split(/[\\/]/).pop().replace(/\.rpf$/i, "");
 const fmtSize = b => b >= 1073741824 ? (b / 1073741824).toFixed(2) + " GB" : b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : b >= 1024 ? Math.round(b / 1024) + " KB" : b + " B";
 const ENC_LABEL = () => ({ open: L("lesbar", "readable"), none: L("lesbar", "readable"), cfxp: L("geschützt (Cfx)", "protected (Cfx)"), aes: L("verschlüsselt", "encrypted"), ng: L("verschlüsselt", "encrypted"), unknown: L("unbekannt", "unknown") });
 
@@ -126,8 +127,8 @@ function msModsTab(body) {
     const info = m.info; const encL = ENC_LABEL()[info.enc] || info.enc;
     const el = h("div", { class: "fx ms-mod" + (MS.sel === m.file ? " sel" : "") + (m.enabled ? "" : " off"), draggable: "true", onclick: () => { MS.sel = m.file; MS.tree = null; MS.treeSel.clear(); msRender(); } },
       h("span", { class: "grip" }, "⋮⋮"),
-      h("div", { class: "nm" }, h("b", {}, info.meta?.name && info.meta.name.toLowerCase() !== m.file.replace(/\.rpf$/i, "").toLowerCase() ? m.file.replace(/\.rpf$/i, "") : m.file.replace(/\.rpf$/i, "")),
-        h("small", {}, fmtSize(info.size) + (info.oiv ? ` · ${info.ops.length} ${L("Ersetzungen", "replacements")}` : ""))),
+      h("div", { class: "nm" }, h("b", {}, mname(m.file)),
+        h("small", {}, fmtSize(info.size) + (info.oiv ? ` · ${info.ops.length} ${L("Ersetzungen", "replacements")}` : "") + (info.inPlace ? " · " + L("vor Ort", "in place") : ""))),
       !info.readable ? h("span", { class: "badge logbad", "data-tip": L("Geschützt/verschlüsselt – Inhalt nicht lesbar, kann nicht ins Pack. Bleibt als einzelne Mod nutzbar.", "Protected/encrypted – content not readable, cannot go into a pack. Still usable as a single mod.") }, encL)
         : !info.oiv ? h("span", { class: "badge perf1", "data-tip": L("Kein OIV-Aufbau (assembly.xml fehlt) – nur ansehen und exportieren", "No OIV layout (assembly.xml missing) – browse and export only") }, L("ohne assembly", "no assembly")) : null,
       confMods.get(m.file) ? h("span", { class: "badge perf2", "data-tip": L("Hat Konflikte mit anderen Mods", "Conflicts with other mods") }, "⚡ " + confMods.get(m.file)) : null,
@@ -188,13 +189,14 @@ async function msModDetail(box) {
   if (!m) { box.append(h("div", { class: "empty" }, L("Links eine Mod wählen.", "Pick a mod on the left."))); return; }
   const info = m.info;
   box.append(h("div", { class: "phead" },
-    h("div", { class: "title" }, m.file.replace(/\.rpf$/i, "")),
+    h("div", { class: "title" }, mname(m.file)),
+    info.inPlace ? h("span", { class: "badge pack", "data-tip": L("Wird direkt aus deinem Ordner gelesen – nichts wird kopiert oder verändert", "Read directly from your folder – nothing is copied or changed") + "\n" + m.file }, L("vor Ort", "in place")) : null,
     h("span", { class: "muted" }, fmtSize(info.size)),
     info.meta?.author ? h("span", { class: "badge pack" }, info.meta.author) : null,
     info.meta?.version ? h("span", { class: "muted" }, "v" + info.meta.version) : null,
     h("div", { class: "spacer" }),
     info.readable ? h("button", { class: "small", onclick: () => msExport(m.file, [""]) }, L("Alles exportieren", "Export all")) : null,
-    h("button", { class: "small danger", onclick: () => modal(L("Aus Arbeitsordner entfernen?", "Remove from workspace?"), h("p", {}, L("Die KOPIE im Arbeitsordner wird gelöscht. Das Original bleibt, wo es ist.", "The COPY in the workspace is deleted. The original stays where it is.")), [[L("Abbrechen", "Cancel"), () => true], [L("Entfernen", "Remove"), async () => { await api("/api/ms/removemod", { file: m.file }); MS.sel = null; await msLoad(); }, "primary"]]) }, L("Entfernen", "Remove"))));
+    h("button", { class: "small danger", onclick: () => modal(info.inPlace ? L("Aus der Liste nehmen?", "Remove from list?") : L("Aus Arbeitsordner entfernen?", "Remove from workspace?"), h("p", {}, info.inPlace ? L("Die Mod wird nur aus der Liste genommen. Die Datei in deinem Ordner bleibt unverändert.", "The mod is only removed from the list. The file in your folder stays unchanged.") : L("Die KOPIE im Arbeitsordner wird gelöscht. Das Original bleibt, wo es ist.", "The COPY in the workspace is deleted. The original stays where it is.")), [[L("Abbrechen", "Cancel"), () => true], [L("Entfernen", "Remove"), async () => { await api("/api/ms/removemod", { file: m.file }); MS.sel = null; await msLoad(); }, "primary"]]) }, L("Entfernen", "Remove"))));
   if (info.meta?.description) box.append(h("div", { class: "pdesc" }, info.meta.description.slice(0, 600)));
   if (!info.readable) {
     box.append(h("div", { class: "card", style: "margin:16px" }, h("h3", {}, L("Inhalt nicht lesbar", "Content not readable")),
@@ -271,10 +273,10 @@ function msConflictsTab(body) {
   const tbl = h("table", { class: "diff" }, h("tr", {}, h("th", {}, L("Spieldatei", "Game file")), h("th", {}, L("Mods (Reihenfolge)", "Mods (order)")), h("th", {}, L("Gewinnt", "Wins"))));
   for (const c of MS.conflicts.slice(0, 1500)) {
     tbl.append(h("tr", {}, h("td", { class: "v" }, c.target, h("div", { class: "muted small" }, c.archive)),
-      h("td", {}, c.mods.map(x => h("div", { class: "cf-mod" + (x.mod === c.winner ? " win" : "") }, x.mod,
+      h("td", {}, c.mods.map(x => h("div", { class: "cf-mod" + (x.mod === c.winner ? " win" : "") }, mname(x.mod),
         !x.own && x.mod !== c.winner ? null : null,
         !x.own ? h("button", { class: "small st-link", onclick: async () => { await api("/api/ms/exclude", { file: x.mod, key: c.key, on: true }); await msLoad(); } }, L("ausschließen", "exclude")) : null))),
-      h("td", {}, h("b", { class: "ok" }, c.winner))));
+      h("td", {}, h("b", { class: "ok" }, mname(c.winner)))));
   }
   el.append(tbl);
 }

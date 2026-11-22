@@ -18,6 +18,15 @@ const ownDir = () => path.join(ws(), 'Eigene Dateien');
 const projFile = () => path.join(ws(), 'velox-modstudio.json');
 const cacheFile = () => path.join(ws(), '.velox-cache.json');
 const liveModsDir = () => path.join(process.env.LOCALAPPDATA || '', 'FiveM', 'FiveM.app', 'mods');
+// A mod id is either a file name in Mods/ (a copy) or a path relative to the workspace (used in place, read only).
+const isInPlace = (id) => /[\\/]/.test(String(id || ''));
+const modName = (id) => path.basename(String(id || ''));
+function modPath(id) {
+  const p = isInPlace(id) ? path.join(ws(), String(id)) : path.join(modsDir(), path.basename(String(id)));
+  if (!inside(p, ws())) throw new Error('Pfad außerhalb des Arbeitsordners');
+  return p;
+}
+const OWN_DIRS = ['mods', 'export', 'packs', 'eigene dateien'];
 
 function needWs() { if (!ws() || !fs.existsSync(ws())) throw new Error('Kein Arbeitsordner gewählt'); }
 function inside(p, root) { const a = path.resolve(p).toLowerCase(), b = path.resolve(root).toLowerCase(); return a === b || a.startsWith(b + path.sep); }
@@ -29,7 +38,7 @@ function loadProject() {
   try { p = { ...p, ...JSON.parse(fs.readFileSync(projFile(), 'utf8').replace(/^\uFEFF/, '')) }; } catch { }
   // sync with files on disk
   const files = fs.existsSync(modsDir()) ? fs.readdirSync(modsDir()).filter((f) => /\.rpf$/i.test(f)) : [];
-  p.mods = p.mods.filter((m) => files.includes(m.file));
+  p.mods = p.mods.filter((m) => (isInPlace(m.file) ? fs.existsSync(path.join(ws(), m.file)) : files.includes(m.file)));
   for (const f of files) if (!p.mods.some((m) => m.file === f)) p.mods.push({ file: f, enabled: true, excluded: [] });
   return p;
 }
@@ -98,12 +107,12 @@ let cache = null;
 function loadCache() { if (!cache) { try { cache = JSON.parse(fs.readFileSync(cacheFile(), 'utf8')); } catch { cache = {}; } } return cache; }
 function saveCache() { try { fs.writeFileSync(cacheFile(), JSON.stringify(cache)); } catch { } }
 function modInfo(file) {
-  const p = path.join(modsDir(), file);
+  const p = modPath(file);
   const st = fs.statSync(p);
   const key = file + '|' + st.size + '|' + st.mtimeMs;
   const c = loadCache();
   if (c[file] && c[file].key === key) return c[file].info;
-  const info = { file, size: st.size, enc: 'unknown', readable: false, oiv: false, entries: 0, files: 0, meta: {}, ops: [] };
+  const info = { file, name: modName(file), inPlace: isInPlace(file), size: st.size, enc: 'unknown', readable: false, oiv: false, entries: 0, files: 0, meta: {}, ops: [] };
   try {
     const l = rpf.list(p);
     info.enc = l.enc; info.readable = l.readable;
@@ -171,6 +180,9 @@ async function importFiles(files) {
   for (const f of files) {
     const ext = path.extname(f).toLowerCase();
     if (inside(f, modsDir())) continue;
+    let isDir = false; try { isDir = fs.statSync(f).isDirectory(); } catch { res.push({ file: null, from: f, error: 'Nicht gefunden' }); continue; }
+    if (isDir) { res.push(...(await importFolder(f))); continue; }
+    if (ext === '.rpf' && inside(f, ws())) { res.push(...useInPlace([path.relative(ws(), f)])); continue; }
     if (ext === '.rpf') {
       const name = freeName(modsDir(), path.basename(f));
       await copyWithProgress(f, path.join(modsDir(), name), 'Kopiere ' + path.basename(f));
@@ -206,16 +218,108 @@ function liveMods() {
   };
 }
 
+// ------------------------------------------------------------ folders: browse, scan, in-place use
+const isFolderMod = (dir) => { try { return fs.existsSync(path.join(dir, 'assembly.xml')) && fs.statSync(path.join(dir, 'content')).isDirectory(); } catch { return false; } };
+function kindOf(full, isDir) {
+  if (isDir) return isFolderMod(full) ? 'foldermod' : 'dir';
+  const e = path.extname(full).toLowerCase();
+  return { '.rpf': 'rpf', '.oiv': 'oiv', '.ytd': 'ytd', '.png': 'image', '.jpg': 'image', '.jpeg': 'image', '.dds': 'image', '.xml': 'text', '.meta': 'text', '.dat': 'text', '.ini': 'text', '.txt': 'text', '.md': 'text', '.zip': 'zip' }[e] || 'other';
+}
+function browse(rel) {
+  needWs();
+  const dir = path.join(ws(), rel || '');
+  if (!inside(dir, ws())) throw new Error('Nicht erlaubt');
+  const p = loadProject();
+  const inProj = new Set(p.mods.map((m) => (isInPlace(m.file) ? m.file.replace(/\\/g, '/').toLowerCase() : 'mods/' + m.file.toLowerCase())));
+  const items = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => !(!rel && /^(velox-modstudio\.json|\.velox-cache\.json)$/i.test(e.name))).map((e) => {
+    const full = path.join(dir, e.name); const r = path.relative(ws(), full).replace(/\\/g, '/');
+    let size = 0; try { if (!e.isDirectory()) size = fs.statSync(full).size; } catch { }
+    return { name: e.name, rel: r, dir: e.isDirectory(), size, kind: kindOf(full, e.isDirectory()), inProject: inProj.has(r.toLowerCase()), own: !rel && OWN_DIRS.includes(e.name.toLowerCase()) };
+  }).sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+  return { dir: (rel || '').replace(/\\/g, '/'), items };
+}
+function scanWorkspace() {
+  needWs();
+  const p = loadProject();
+  const inProj = new Set(p.mods.map((m) => (isInPlace(m.file) ? m.file.replace(/\\/g, '/').toLowerCase() : '')));
+  const hidden = new Set((p.hidden || []).map((x) => x.toLowerCase()));
+  const found = [];
+  const walkDir = (dir, depth) => {
+    let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const full = path.join(dir, e.name); const r = path.relative(ws(), full).replace(/\\/g, '/');
+      if (e.isDirectory()) {
+        if (depth === 0 && OWN_DIRS.includes(e.name.toLowerCase())) continue;
+        if (isFolderMod(full)) { found.push({ rel: r, kind: 'foldermod' }); continue; }
+        if (depth < 10) walkDir(full, depth + 1);
+      } else if (/\.(rpf|oiv)$/i.test(e.name)) found.push({ rel: r, kind: e.name.toLowerCase().endsWith('.rpf') ? 'rpf' : 'oiv', size: fs.statSync(full).size });
+    }
+  };
+  walkDir(ws(), 0);
+  // OIV files / folders that were already converted into a mod in Mods/ (same name) are not offered again
+  const converted = new Set((fs.existsSync(modsDir()) ? fs.readdirSync(modsDir()) : []).map((f) => f.replace(/\.rpf$/i, '').toLowerCase()));
+  const baseNoExt = (r) => path.basename(r).replace(/\.(oiv|zip)$/i, '').toLowerCase();
+  return found.filter((f) => !inProj.has(f.rel.toLowerCase()) && !hidden.has(f.rel.toLowerCase()) && !(f.kind !== 'rpf' && converted.has(baseNoExt(f.rel))));
+}
+function useInPlace(rels) {
+  needWs();
+  const p = loadProject(); const res = [];
+  for (const r0 of rels) {
+    const r = String(r0).replace(/\\/g, '/');
+    const full = path.join(ws(), r);
+    if (!inside(full, ws()) || !fs.existsSync(full)) { res.push({ file: null, from: r, error: 'Nicht gefunden' }); continue; }
+    if (inside(full, modsDir())) continue;
+    if (!/\.rpf$/i.test(r)) { res.push({ file: null, from: r, error: 'Nur .rpf kann direkt benutzt werden' }); continue; }
+    if (!p.mods.some((m) => m.file.toLowerCase() === r.toLowerCase())) p.mods.push({ file: r, enabled: true, excluded: [] });
+    res.push({ file: r, from: full, inPlace: true });
+  }
+  saveProject(p);
+  return res;
+}
+function folderModToRpf(dir) {
+  const list = [];
+  const walkDir = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const full = path.join(d, e.name); if (e.isDirectory()) walkDir(full); else list.push({ path: path.relative(dir, full).replace(/\\/g, '/'), file: full }); } };
+  walkDir(dir);
+  const files = list.filter((f) => f.path.toLowerCase() === 'assembly.xml' || /^content\//i.test(f.path));
+  const name = freeName(modsDir(), clean(path.basename(dir)) + '.rpf');
+  ctx.progress({ label: 'Packe Ordner ' + path.basename(dir), done: 0, total: 1 });
+  rpf.build(path.join(modsDir(), name), files);
+  ctx.progress({ label: 'Packe Ordner ' + path.basename(dir), done: 1, total: 1 });
+  return name;
+}
+async function importFolder(dir) {
+  // unpacked OIV folder -> one mod; otherwise collect every .rpf/.oiv inside
+  if (isFolderMod(dir)) return [{ file: folderModToRpf(dir), from: dir, converted: true }];
+  const res = []; const inWs = inside(dir, ws());
+  const walkDir = async (d, depth) => {
+    let ents; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) {
+        if (inside(full, modsDir()) || inside(full, packsDir()) || inside(full, exportDir()) || inside(full, ownDir())) continue;
+        if (isFolderMod(full)) res.push({ file: folderModToRpf(full), from: full, converted: true });
+        else if (depth < 10) await walkDir(full, depth + 1);
+      } else if (/\.rpf$/i.test(e.name)) {
+        if (inWs) res.push(...useInPlace([path.relative(ws(), full)]));
+        else { const name = freeName(modsDir(), e.name); await copyWithProgress(full, path.join(modsDir(), name), 'Kopiere ' + e.name); res.push({ file: name, from: full }); }
+      } else if (/\.oiv$/i.test(e.name)) res.push(...(await importFiles([full])));
+    }
+  };
+  await walkDir(dir, 0);
+  if (!res.length) res.push({ file: null, from: dir, error: 'Keine Mods (.rpf / .oiv / OIV-Ordner) im Ordner gefunden' });
+  return res;
+}
+
 // ------------------------------------------------------------ tree / export
 function tree(file) {
   needWs();
-  const p = path.join(modsDir(), path.basename(file));
+  const p = modPath(file);
   const l = rpf.list(p);
   return { enc: l.enc, readable: l.readable, entries: l.entries.map((e) => ({ path: e.path, type: e.type, size: e.size, nested: e.nested })) };
 }
 function exportEntries(file, paths, target) {
   needWs();
-  const p = path.join(modsDir(), path.basename(file));
+  const p = modPath(file);
   const l = rpf.list(p);
   const want = paths.map((x) => x.toLowerCase());
   const sel = l.entries.filter((e) => e.type !== 'dir' && want.some((w) => e.path.toLowerCase() === w || e.path.toLowerCase().startsWith(w + '/')))
@@ -248,7 +352,7 @@ function addOverride(o) {
   return p.overrides;
 }
 function chainFor(modFile, archive) {
-  const p = path.join(modsDir(), modFile);
+  const p = modPath(modFile);
   const l = rpf.list(p);
   const asm = l.entries.find((e) => e.path.toLowerCase() === 'assembly.xml');
   const a = parseAssembly(rpf.extract(p, asm).toString('utf8').replace(/^\uFEFF/, ''));
@@ -282,8 +386,8 @@ function planPack(opt = {}) {
   const files = []; const blocks = []; const kept = []; let idx = 0; let skipped = 0;
   for (const m of usable) {
     idx++;
-    const prefix = `m${String(idx).padStart(2, '0')}_${clean(path.basename(m.file, '.rpf')).replace(/\s+/g, '_').slice(0, 40)}`;
-    const src = path.join(modsDir(), m.file);
+    const prefix = `m${String(idx).padStart(2, '0')}_${clean(path.basename(modName(m.file), '.rpf')).replace(/\s+/g, '_').slice(0, 40)}`;
+    const src = modPath(m.file);
     const l = rpf.list(src);
     const asmE = l.entries.find((e) => e.path.toLowerCase() === 'assembly.xml');
     const a = parseAssembly(rpf.extract(src, asmE).toString('utf8').replace(/^\uFEFF/, ''));
@@ -441,7 +545,7 @@ function fusionData(mods) {
   needWs();
   const rows = new Map(); const extras = [];
   for (const f of mods) {
-    const info = modInfo(path.basename(f));
+    const info = modInfo(f);
     if (!info.readable || !info.oiv) continue;
     let xi = -1;
     for (const o of info.ops) {
@@ -452,7 +556,7 @@ function fusionData(mods) {
     }
   }
   return {
-    mods: mods.map((f) => { const i = modInfo(path.basename(f)); return { file: i.file, readable: i.readable, oiv: i.oiv, enc: i.enc, ops: i.ops.length, size: i.size, name: i.meta?.name || '' }; }),
+    mods: mods.map((f) => { const i = modInfo(f); return { file: i.file, readable: i.readable, oiv: i.oiv, enc: i.enc, ops: i.ops.length, size: i.size, name: i.meta?.name || '' }; }),
     rows: [...rows.values()].sort((a, b) => a.category.localeCompare(b.category) || a.target.localeCompare(b.target)),
     extras,
   };
@@ -484,12 +588,12 @@ function ytdOpen(b) {
   needWs();
   let buf, src;
   if (b.mod) {
-    const p = path.join(modsDir(), path.basename(b.mod));
+    const p = modPath(b.mod);
     const l = rpf.list(p);
     const e = l.entries.find((x) => x.path === b.path);
     if (!e) throw new Error('Datei nicht im Archiv');
     buf = rpf.extract(p, e);
-    src = { kind: 'mod', mod: path.basename(b.mod), path: b.path, name: path.basename(b.path), target: sourceTarget(path.basename(b.mod), b.path) };
+    src = { kind: 'mod', mod: b.mod, path: b.path, name: path.basename(b.path), target: sourceTarget(b.mod, b.path) };
   } else if (b.own) {
     const p = path.join(ownDir(), path.basename(b.own));
     buf = fs.readFileSync(p);
@@ -616,16 +720,22 @@ async function api(route, q = {}, b = {}) {
     case 'ms/live': return liveMods();
     case 'ms/copylive': { needWs(); const d = liveModsDir(); return importFiles((b.files || []).map((f) => path.join(d, path.basename(f)))); }
     case 'ms/tree': return tree(b.file || q.file);
-    case 'ms/ops': { needWs(); const i = modInfo(path.basename(b.file || q.file)); return { info: i, ops: i.ops.map((o) => ({ ...o, key: opKey(o) })) }; }
+    case 'ms/ops': { needWs(); const i = modInfo(b.file || q.file); return { info: i, ops: i.ops.map((o) => ({ ...o, key: opKey(o) })) }; }
     case 'ms/export': return exportEntries(b.file, b.paths || [], b.target);
     case 'ms/conflicts': needWs(); return conflicts();
     case 'ms/override': return addOverride({ ...b, chain: b.chain || (b.fromMod ? chainFor(b.fromMod, b.archive) : []) });
     case 'ms/removeoverride': { needWs(); const p = loadProject(); const o = (p.overrides || [])[b.index]; p.overrides.splice(b.index, 1); saveProject(p); if (o) { try { fs.unlinkSync(path.join(ownDir(), o.file)); } catch { } } return { ok: true }; }
-    case 'ms/removemod': { // removes the COPY from the workspace only
-      needWs(); const f = path.join(modsDir(), path.basename(b.file));
+    case 'ms/removemod': { // in-place mods are only removed from the list; copies in Mods/ are deleted
+      needWs(); const p = loadProject();
+      if (isInPlace(b.file)) { p.mods = p.mods.filter((m) => m.file !== b.file); saveProject(p); return { ok: true, inPlace: true }; }
+      const f = path.join(modsDir(), path.basename(b.file));
       if (!inside(f, modsDir())) throw new Error('Nicht erlaubt');
-      fs.unlinkSync(f); const p = loadProject(); saveProject(p); return { ok: true };
+      fs.unlinkSync(f); saveProject(loadProject()); return { ok: true };
     }
+    case 'ms/browse': return browse(b.dir || '');
+    case 'ms/scan': return scanWorkspace();
+    case 'ms/useinplace': return useInPlace(b.files || (b.rel ? [b.rel] : []));
+    case 'ms/hide': { needWs(); const p = loadProject(); p.hidden = [...new Set([...(p.hidden || []), ...(b.files || [])])]; saveProject(p); return { ok: true }; }
     case 'ms/build': try { return await buildPack(b || {}); } catch (e) { if (e.report) return { ok: false, report: e.report, error: e.message }; throw e; }
     case 'ms/fusion': return fusionData(b.mods || []);
     case 'ms/validate': { const plan = planPack(b || {}); return validatePlan(plan, b.deep !== false); }

@@ -8,11 +8,19 @@ const path = require('path');
 const http = require('http');
 const os = require('os');
 
-const CFG = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'velox-preset-studio', 'api.json');
+const APPDATA = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+// installed builds use the product name as folder, dev builds the package name
+const CFGS = ['VELOX Preset Studio', 'velox-preset-studio'].map((d) => path.join(APPDATA, d, 'api.json'));
+
+function readCfg() {
+  const found = CFGS.filter((f) => fs.existsSync(f)).map((f) => ({ f, t: fs.statSync(f).mtimeMs })).sort((a, b) => b.t - a.t);
+  for (const c of found) { try { return JSON.parse(fs.readFileSync(c.f, 'utf8')); } catch { } }
+  return null;
+}
 
 function api(method, route, body) {
-  let cfg;
-  try { cfg = JSON.parse(fs.readFileSync(CFG, 'utf8')); } catch { return Promise.reject(new Error('VELOX Preset Studio läuft nicht (api.json fehlt) oder die Fernsteuerung ist aus. Bitte die App starten.')); }
+  const cfg = readCfg();
+  if (!cfg) return Promise.reject(new Error('VELOX Preset Studio läuft nicht (api.json fehlt) oder die Fernsteuerung ist aus. Bitte die App starten.'));
   const data = body ? JSON.stringify(body) : '';
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port: cfg.port, path: route, method, headers: { 'x-vps-token': cfg.token, 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }, timeout: 120000 }, (res) => {

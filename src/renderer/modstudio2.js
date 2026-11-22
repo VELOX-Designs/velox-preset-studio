@@ -24,7 +24,7 @@ function msTexTab(body) {
     return;
   }
   const t = MS.tex;
-  const where = t.src.kind === "mod" ? `${t.src.mod} › ${t.src.path}` : t.src.kind === "own" ? L("Eigene Datei: ", "Own file: ") + t.src.own : t.src.disk;
+  const where = t.src.kind === "mod" ? `${mname(t.src.mod)} › ${t.src.path}` : t.src.kind === "own" ? L("Eigene Datei: ", "Own file: ") + t.src.own : t.src.disk;
   el.append(h("div", { class: "toolbar" },
     h("div", {}, h("div", { class: "title" }, t.src.name), h("div", { class: "muted small" }, where),
       t.src.target ? h("div", { class: "ok small" }, L("Ersetzt im Spiel: ", "Replaces in game: ") + t.src.target.targetRaw + (t.src.target.archive ? "  (" + t.src.target.archive + ")" : "")) : h("div", { class: "wrn small" }, L("Kein Spielziel bekannt – Speichern legt nur eine Datei an, die du exportieren kannst.", "No game target known – saving only creates a file you can export."))),
@@ -96,14 +96,14 @@ function msFusionTab(body) {
     h("div", { class: "fu-pick" }, usable.map(m => {
       const on = MS.fusion.mods.includes(m.file);
       return h("button", { class: "fu-chip" + (on ? " on" : ""), onclick: async () => { MS.fusion.mods = on ? MS.fusion.mods.filter(x => x !== m.file) : [...MS.fusion.mods, m.file]; await msFusionLoad(); msRender(); } },
-        (on ? "✓ " : "+ ") + m.file.replace(/\.rpf$/i, ""), h("small", {}, ` ${m.info.ops.length}`));
+        (on ? "✓ " : "+ ") + mname(m.file), h("small", {}, ` ${m.info.ops.length}`));
     })),
     prot.length ? h("p", { class: "muted small" }, L("Nicht fusionierbar (geschützt): ", "Cannot be fused (protected): ") + prot.map(m => m.file).join(", ")) : null));
   const d = MS.fusion.data;
   if (!d || MS.fusion.mods.length < 1) { el.append(h("div", { class: "empty" }, L("Oben Mods antippen, die du kombinieren willst.", "Tap the mods you want to combine above."))); return; }
   const mods = MS.fusion.mods;
   const letter = i => String.fromCharCode(65 + i);
-  const short = f => f.replace(/\.rpf$/i, "");
+  const short = f => mname(f);
   // legend + global buttons
   el.append(h("div", { class: "toolbar fu-legend" },
     ...mods.map((m, i) => h("span", { class: "fu-tag t" + (i % 6) }, letter(i) + " = " + short(m))),
@@ -258,3 +258,88 @@ Object.assign(REMOTE, {
   msValidate: { help: "{selection?} Fusion bzw. Pack prüfen (ohne selection = normales Pack)", run: a => api("/api/ms/validate", a.selection ? a : (MS.fusion.mods.length ? { selection: msSelection() } : {})) },
   msFusionBuild: { help: "{name} aktuelle Fusion prüfen und als Pack bauen", run: async a => { const r = await api("/api/ms/build", { selection: msSelection(), name: a.name || "Fusion" }); MS.proj = await api("/api/ms/project"); return r; } },
 });
+
+// ============================================================ 1.4.1: folder explorer, found-mods offer, in-place use
+MS.dir = "";
+MS.found = [];
+async function msScan() { try { MS.found = await api("/api/ms/scan"); } catch { MS.found = []; } }
+const _msLoad = msLoad;
+msLoad = async function () {
+  await msScan();
+  await _msLoad();
+};
+const _msInit = msInit;
+msInit = async function () {
+  await _msInit();
+  if (MS.proj && !MS.proj.mods.length && MS.found.length && MS.tab === "mods") { MS.tab = "folder"; msRender(); }
+};
+function msFoundBanner() {
+  if (!MS.found.length) return null;
+  const rpfs = MS.found.filter(f => f.kind === "rpf"), oivs = MS.found.filter(f => f.kind !== "rpf");
+  return h("div", { class: "found-banner" },
+    h("div", {}, h("b", {}, L(`${MS.found.length} Mod(s) in diesem Ordner gefunden`, `${MS.found.length} mod(s) found in this folder`)),
+      h("div", { class: "muted small" }, [rpfs.length ? `${rpfs.length} RPF (${L("werden direkt benutzt, nichts wird kopiert", "used in place, nothing copied")})` : "", oivs.length ? `${oivs.length} OIV/${L("Ordner", "folder")} (${L("werden in eine Mod umgewandelt", "converted into a mod")})` : ""].filter(Boolean).join(" · "))),
+    h("div", { class: "spacer" }),
+    h("button", { class: "small", onclick: () => { MS.tab = "folder"; msRender(); } }, L("Liste ansehen", "View list")),
+    h("button", { class: "small primary", onclick: msTakeAllFound }, L("Alle übernehmen", "Take all")),
+    h("button", { class: "small st-link", onclick: async () => { await api("/api/ms/hide", { files: MS.found.map(f => f.rel) }); MS.found = []; msRender(); } }, L("ausblenden", "hide")));
+}
+async function msTakeAllFound() {
+  const rpfs = MS.found.filter(f => f.kind === "rpf").map(f => f.rel);
+  const others = MS.found.filter(f => f.kind !== "rpf").map(f => MS.state.workspace + "\\" + f.rel.replace(/\//g, "\\"));
+  try {
+    let n = 0;
+    if (rpfs.length) n += (await api("/api/ms/useinplace", { files: rpfs })).filter(x => x.file).length;
+    if (others.length) n += (await api("/api/ms/import", { files: others })).filter(x => x.file).length;
+    toast(L(`${n} Mod(s) übernommen`, `${n} mod(s) added`), true);
+    MS.tab = "mods"; MS.sel = null; await msLoad();
+  } catch (e) { toast(e.message); }
+}
+async function msFolderTab(body) {
+  const el = h("div", { class: "view scroll", style: "flex:1" }); body.append(el);
+  const ban = msFoundBanner(); if (ban) el.append(ban);
+  let data; try { data = await api("/api/ms/browse", { dir: MS.dir }); } catch (e) { MS.dir = ""; el.append(h("div", { class: "empty" }, e.message)); return; }
+  const parts = data.dir ? data.dir.split("/") : [];
+  const crumbs = h("div", { class: "crumbs" },
+    h("button", { class: "small" + (parts.length ? "" : " on"), onclick: () => { MS.dir = ""; msRender(); } }, "📁 " + MS.state.workspace.split(/[\\/]/).pop()),
+    ...parts.map((p, i) => [h("span", { class: "muted" }, "›"), h("button", { class: "small" + (i === parts.length - 1 ? " on" : ""), onclick: () => { MS.dir = parts.slice(0, i + 1).join("/"); msRender(); } }, p)]).flat(),
+    h("div", { class: "spacer" }),
+    parts.length ? h("button", { class: "small", onclick: () => { MS.dir = parts.slice(0, -1).join("/"); msRender(); } }, L("↑ Hoch", "↑ Up")) : null,
+    h("button", { class: "small", onclick: () => window.vps.openPath(MS.state.workspace + (data.dir ? "\\" + data.dir.replace(/\//g, "\\") : "")) }, L("Im Explorer öffnen", "Open in Explorer")));
+  el.append(crumbs);
+  if (!data.items.length) { el.append(h("div", { class: "empty" }, L("Ordner ist leer.", "Folder is empty."))); return; }
+  const ICON = { dir: "📁", foldermod: "🧩", rpf: "📦", oiv: "🧩", ytd: "🖼️", image: "🖼️", text: "📄", zip: "🗜️", other: "📄" };
+  const abs = it => MS.state.workspace + "\\" + it.rel.replace(/\//g, "\\");
+  const idOf = it => /^mods\//i.test(it.rel) && it.rel.split("/").length === 2 ? it.name : it.rel;
+  const list = h("div", { class: "fb-list" });
+  for (const it of data.items) {
+    const acts = [];
+    if (it.kind === "rpf") {
+      if (it.inProject) { acts.push(h("span", { class: "badge pack" }, L("✓ im Projekt", "✓ in project")), h("button", { class: "small", onclick: e => { e.stopPropagation(); MS.sel = idOf(it); MS.tree = null; MS.tab = "mods"; msRender(); } }, L("Anzeigen", "Show"))); }
+      else acts.push(h("button", { class: "small primary", "data-tip": L("Wird direkt aus diesem Ordner gelesen – keine Kopie, nichts wird verändert", "Read directly from this folder – no copy, nothing changed"), onclick: async e => { e.stopPropagation(); const r = await api("/api/ms/useinplace", { files: [it.rel] }); if (r[0]?.error) toast(r[0].error); else { toast(L("Übernommen", "Added"), true); await msLoad(); } } }, L("Benutzen", "Use")));
+    } else if (it.kind === "oiv" || it.kind === "foldermod" || it.kind === "zip") {
+      acts.push(h("button", { class: "small primary", "data-tip": L("Wird in eine Mod (RPF) im Ordner „Mods“ umgewandelt – das Original bleibt", "Converted into a mod (RPF) in the Mods folder – the original stays"), onclick: async e => { e.stopPropagation(); await msImport([abs(it)]); } }, L("Als Mod übernehmen", "Add as mod")));
+    } else if (it.kind === "ytd") acts.push(h("button", { class: "small", onclick: e => { e.stopPropagation(); msOpenYtd({ disk: abs(it) }); } }, L("Texturen", "Textures")));
+    if (!it.dir && it.kind !== "rpf") acts.push(h("button", { class: "small st-link", onclick: e => { e.stopPropagation(); window.vps.openPath(abs(it)); } }, L("Öffnen", "Open")));
+    if (it.dir && it.kind === "foldermod") acts.push(h("button", { class: "small st-link", onclick: e => { e.stopPropagation(); MS.dir = it.rel; msRender(); } }, L("Hineinschauen", "Look inside")));
+    list.append(h("div", { class: "fb-row" + (it.dir ? " is-dir" : "") + (it.own ? " own" : ""), onclick: () => { if (it.dir) { MS.dir = it.rel; msRender(); } } },
+      h("span", { class: "fb-ic" }, ICON[it.kind] || "📄"),
+      h("div", { class: "nm" }, h("b", {}, it.name), it.own ? h("small", {}, L("Ordner von VELOX Mod-Studio", "VELOX Mod-Studio folder")) : it.kind === "foldermod" ? h("small", {}, L("entpacktes OIV-Paket", "unpacked OIV package")) : null),
+      h("span", { class: "muted small" }, it.dir ? "" : fmtSize(it.size)),
+      h("div", { class: "fb-acts" }, acts)));
+  }
+  el.append(list);
+}
+const _msRender2 = msRender;
+msRender = function () {
+  _msRender2();
+  const nav = $(".ms-tabs");
+  if (nav && !nav.querySelector('[data-k="folder"]')) {
+    const b = h("button", { "data-k": "folder", class: MS.tab === "folder" ? "on" : "", onclick: () => { MS.tab = "folder"; msRender(); } }, L("Ordner", "Folder"));
+    nav.prepend(b);
+    if (MS.tab === "folder") [...nav.children].forEach(x => x !== b && x.classList.remove("on"));
+  }
+  const body = $(".ms-body");
+  if (body && MS.tab === "folder" && MS.state?.workspace && MS.proj) { body.innerHTML = ""; msFolderTab(body); }
+  if (body && MS.tab === "mods" && MS.found.length) { const left = $(".ms-left"); const ban = msFoundBanner(); if (left && ban) left.prepend(ban); }
+};
