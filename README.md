@@ -41,6 +41,15 @@ Updates: unten rechts zeigt der Button, ob es eine neue Version gibt – ein Kli
 | ⚡ **Live testen** | Live-Modus schreibt jede Änderung sofort ins Preset – im Spiel nur noch die ReShade-Reload-Taste drücken |
 | 🕘 **Versionen** | Jedes Speichern sichert automatisch, Rückgängig/Wiederholen, gelöschte Presets landen im eigenen Papierkorb |
 | 📸 **Screenshots** | ReShade-Screenshots samt benutztem Preset, Vorher/Nachher-Schieber, Preset aus Screenshot wiederherstellen |
+| 📦 **Pakete** | Liest alle installierten Shader-Pakete und zeigt sie mit Namen – unter jedem Preset stehen „Andere Effekte“ zum direkten Einschalten |
+| 💡 **Erklärungen** | Maus über einen Regler oder Effekt: kurze Erklärung, was er macht, Standardwert und Bereich |
+| 🎨 **Looks** | Ein Klick für wärmer, kälter, Kontrast, Sättigung, Helligkeit, Bloom, Schärfe, Vignette, Filmkorn, „Filmisch“ oder hellere Nächte |
+| ☀️ **Tag / Nacht** | Bei Shadern mit getrennten Tag- und Nacht-Werten nur Tag oder nur Nacht anzeigen |
+| 🧪 **Import & Check** | Fremde Presets importieren – die App zeigt sofort, welche Shader oder Texturen fehlen |
+| 🎛️ **Mischen** | Zwei Presets stufenlos mischen, z. B. 70 % A und 30 % B |
+| 🧹 **Aufräumen** | Doppelte, veraltete und unnötige Einträge entfernen |
+| ⚡ **Leistung** | Schwere Effekte (SSR, AO, GI …) werden markiert, Gesamt-Last pro Preset |
+| 🌍 **Deutsch / English** | Sprache unten rechts umschalten |
 | 🤖 **Claude-Fernsteuerung** | Eingebauter MCP-Server: Claude Code kann Presets öffnen, Regler setzen, Effekte schalten und Screenshots ansehen |
 
 **Sicher:** VELOX Preset Studio ändert nur Textdateien (Presets, `ReShade.ini`). Es hängt sich nicht in Spiele ein und liest keinen Spielspeicher.

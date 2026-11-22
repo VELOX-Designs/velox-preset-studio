@@ -1,6 +1,7 @@
 'use strict';
 const { app, BrowserWindow, ipcMain, dialog, shell, protocol, nativeImage, Menu } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const backend = require('./backend');
 
 if (process.env.VPS_USERDATA) app.setPath('userData', process.env.VPS_USERDATA);
@@ -20,9 +21,15 @@ function createWindow() {
     icon: path.join(__dirname, 'renderer', 'assets', 'icon.png'),
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#14161b', symbolColor: '#c9d1dc', height: 52 },
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false, backgroundThrottling: false },
   });
   Menu.setApplicationMenu(null);
+  win.webContents.on('console-message', (e) => {
+    const lvl = e.level ?? 0;
+    if (lvl === 'error' || lvl === 'warning' || lvl >= 2) {
+      try { fs.appendFileSync(path.join(app.getPath('userData'), 'renderer.log'), `[${new Date().toISOString()}] ${e.message} (${e.sourceId}:${e.lineNumber})\n`); } catch { }
+    }
+  });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => { win.show(); if (process.env.VPS_DEVTOOLS) win.webContents.openDevTools({ mode: 'detach' }); });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
@@ -56,7 +63,6 @@ app.whenReady().then(() => {
 // directly or forwarded to the UI, so the open window always shows what happens.
 const http = require('http');
 const crypto = require('crypto');
-const fs = require('fs');
 let ctlServer = null;
 const pending = new Map();
 const apiFile = () => path.join(app.getPath('userData'), 'api.json');
@@ -75,6 +81,8 @@ ipcMain.on('remote:reply', (_e, id, ok, data) => {
   ok ? p.resolve(data) : p.reject(new Error(data));
 });
 async function capture(file) {
+  win.webContents.invalidate();
+  await new Promise((r) => setTimeout(r, 250));
   const img = await win.webContents.capturePage();
   fs.writeFileSync(file, img.toPNG());
   return file;
@@ -133,6 +141,10 @@ ipcMain.handle('app:info', () => ({ version: app.getVersion(), packaged: app.isP
 ipcMain.handle('app:pickFolder', async () => {
   const r = await dialog.showOpenDialog(win, { title: 'ReShade-Ordner wählen (dort wo ReShade.ini liegt)', properties: ['openDirectory'] });
   return r.canceled ? null : r.filePaths[0];
+});
+ipcMain.handle('app:pickPreset', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Preset importieren', properties: ['openFile', 'multiSelections'], filters: [{ name: 'ReShade-Preset', extensions: ['ini', 'txt'] }] });
+  return r.canceled ? [] : r.filePaths;
 });
 ipcMain.handle('app:openPath', (_e, p) => (p ? shell.openPath(p) : ''));
 ipcMain.handle('app:openUrl', (_e, u) => { if (/^https:\/\//.test(u)) shell.openExternal(u); });

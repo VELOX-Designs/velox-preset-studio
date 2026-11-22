@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('vps', {
   api: (route, q, body) => ipcRenderer.invoke('api', route, q, body),
   info: () => ipcRenderer.invoke('app:info'),
   pickFolder: () => ipcRenderer.invoke('app:pickFolder'),
+  pickPreset: () => ipcRenderer.invoke('app:pickPreset'),
   openPath: (p) => ipcRenderer.invoke('app:openPath', p),
   openUrl: (u) => ipcRenderer.invoke('app:openUrl', u),
   onCloseRequest: (cb) => ipcRenderer.on('app:close-request', () => cb()),

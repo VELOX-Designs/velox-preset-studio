@@ -400,6 +400,46 @@ function imageResponse(kind, q) {
   return { data: fs.readFileSync(p), type };
 }
 
+// ------------------------------------------------------------ preset check (missing shaders / textures)
+const IMG_RE = /"([^"]+\.(?:png|jpe?g|bmp|tga|dds|cube))"/gi;
+function textureIndex() {
+  const rel = new Set(), names = new Set();
+  for (const r of textureRoots()) walk(r, (p, fn) => { rel.add(path.relative(r, p).toLowerCase().replace(/\\/g, '/')); names.add(fn.toLowerCase()); });
+  return { rel, names };
+}
+async function checkModel(model) {
+  if (!FX.ready) await FX.building;
+  const techKeys = new Set(FX.techniques.map((t) => `${t.name}@${t.file}`.toLowerCase()));
+  const filesLower = new Map(Object.keys(FX.files).map((f) => [f.toLowerCase(), f]));
+  const g = (k) => ((model.global.find((i) => i[0] === k) || [])[1] || '');
+  const enabled = g('Techniques').split(',').map((s) => s.trim()).filter(Boolean);
+  const missingFiles = new Map(), missingTech = [];
+  for (const key of enabled) {
+    const file = (key.split('@')[1] || '').trim();
+    if (!file) continue;
+    if (!filesLower.has(file.toLowerCase())) { if (!missingFiles.has(file)) missingFiles.set(file, []); missingFiles.get(file).push(key.split('@')[0]); }
+    else if (!techKeys.has(key.toLowerCase())) missingTech.push(key);
+  }
+  // pack hint: installed files sharing the missing file's prefix
+  const prefix = (f) => f.replace(/\.fx$/i, '').split(/[_\- .]/)[0].toLowerCase();
+  const installedPrefix = new Map();
+  for (const [fn, p] of Object.entries(FX.files)) {
+    const pre = prefix(fn); if (pre.length < 3) continue;
+    const folder = path.relative(shaderRoots()[0] || '', path.dirname(p)).split(/[\\/]/)[0];
+    if (!installedPrefix.has(pre)) installedPrefix.set(pre, folder || fn.replace(/\.fx$/i, '').split(/[_\- .]/)[0]);
+  }
+  const tex = textureIndex(); const missingTex = new Set();
+  const texts = [g('PreprocessorDefinitions'), ...model.sections.map((s) => (s.items.find((i) => i[0] === 'PreprocessorDefinitions') || [])[1] || '')];
+  for (const t of texts) { let m; IMG_RE.lastIndex = 0; while ((m = IMG_RE.exec(t))) { const v = m[1].replace(/\\/g, '/').toLowerCase(); if (!tex.rel.has(v) && !tex.names.has(path.posix.basename(v))) missingTex.add(m[1]); } }
+  return {
+    enabled: enabled.length,
+    missingShaders: [...missingFiles].map(([file, techs]) => ({ file, techniques: techs, hint: installedPrefix.get(prefix(file)) || '' })),
+    missingTechniques: missingTech,
+    missingTextures: [...missingTex],
+    ok: !missingFiles.size && !missingTech.length && !missingTex.size,
+  };
+}
+
 // ------------------------------------------------------------ API dispatch
 async function api(route, q = {}, b = null) {
   switch (route) {
@@ -494,6 +534,17 @@ async function api(route, q = {}, b = null) {
       const s = new Set(settings.favorites);
       b.on ? s.add(b.key) : s.delete(b.key);
       settings.favorites = [...s]; saveSettings(); return { ok: true, favorites: settings.favorites };
+    }
+    case 'check': {
+      if (b && b.model) return checkModel(b.model);
+      return checkModel(parsePreset(readText(safePath(q.rel))));
+    }
+    case 'readfile': { // external preset file chosen by the user in the import dialog
+      const f = String(b.file || '');
+      if (!/\.(ini|txt)$/i.test(f) || !fs.existsSync(f) || fs.statSync(f).size > 4e6) throw new Error('Keine gültige Preset-Datei');
+      const model = parsePreset(readText(f));
+      if (!model.global.some((i) => i[0] === 'Techniques')) throw new Error('Das ist kein ReShade-Preset (keine Techniques-Zeile)');
+      return { name: path.basename(f).replace(/\.(ini|txt)$/i, ''), model, check: await checkModel(model) };
     }
     case 'reindex': effectCache.clear(); await buildIndex(); return { ok: true, count: FX.count };
     case 'folderpath': {

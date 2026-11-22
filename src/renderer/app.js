@@ -1,4 +1,6 @@
 ﻿"use strict";
+const LANG = localStorage.getItem("lang") || "de";
+const L = (de, en) => (LANG === "en" ? en : de);
 // ============================================================ helpers
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -39,7 +41,7 @@ const S = {
   sel: null,            // selected technique key Name@File.fx
   undo: [], redo: [], lastUndo: 0, ownWrite: 0,
   collapsed: JSON.parse(localStorage.getItem("collapsed") || "{}"),
-  view: "editor", paramFilter: "",
+  view: "editor", paramFilter: "", dn: localStorage.getItem("dn") || "both",
 };
 
 // ============================================================ model helpers
@@ -135,8 +137,8 @@ async function save({ live = false, label = "" } = {}) {
     const r = await api("/api/save", { rel: S.cur.rel, model: S.cur.model, live, firstLive: first, label });
     if (first) S.liveBacked.add(S.cur.rel);
     S.cur.mtime = r.mtime; S.ownWrite = Date.now(); S.dirty = false; updateTop();
-    if (!live) toast("Gespeichert – Version gesichert", true);
-  } catch (e) { toast("Speichern fehlgeschlagen: " + e.message); }
+    if (!live) toast(L("Gespeichert – Version gesichert", "Saved – version stored"), true);
+  } catch (e) { toast(L("Speichern fehlgeschlagen: ", "Saving failed: ") + e.message); }
 }
 function undo() { if (!S.cur || !S.undo.length) return; S.redo.push(clone(S.cur.model)); S.cur.model = S.undo.pop(); S.lastUndo = 0; changed(true); }
 function redo() { if (!S.cur || !S.redo.length) return; S.undo.push(clone(S.cur.model)); S.cur.model = S.redo.pop(); S.lastUndo = 0; changed(true); }
@@ -145,7 +147,7 @@ function redo() { if (!S.cur || !S.redo.length) return; S.undo.push(clone(S.cur.
 async function loadState() {
   S.state = await api("/api/state");
   const p = $("#gamePill");
-  p.textContent = S.state.game ? "Spiel läuft" : "Spiel aus";
+  p.textContent = S.state.game ? L("Spiel läuft", "Game running") : L("Spiel aus", "Game off");
   p.classList.toggle("on", S.state.game);
 }
 async function loadPresets() { S.presets = await api("/api/presets"); renderPresetList(); }
@@ -166,7 +168,7 @@ async function fxDetails(file) {
   return S.fx[file];
 }
 async function openPreset(rel, keepSel = false) {
-  if (S.dirty && !S.live && S.cur && !confirm("Ungespeicherte Änderungen verwerfen?")) return;
+  if (S.dirty && !S.live && S.cur && !confirm(L("Ungespeicherte Änderungen verwerfen?", "Discard unsaved changes?"))) return;
   try {
     const r = await api("/api/preset?rel=" + enc(rel));
     S.cur = { rel, model: r.model, mtime: r.mtime };
@@ -175,20 +177,20 @@ async function openPreset(rel, keepSel = false) {
     localStorage.setItem("lastPreset", rel);
     renderPresetList(); renderEditor(); updateTop();
     if (S.view !== "editor" && ["versions", "compare"].includes(S.view)) showView(S.view);
-  } catch (e) { toast("Konnte Preset nicht laden: " + e.message); }
+  } catch (e) { toast(L("Konnte Preset nicht laden: ", "Could not load preset: ") + e.message); }
 }
 
 // ============================================================ top bar
 function updateTop() {
   $("#saveBtn").disabled = !S.cur || (!S.dirty && !S.live);
-  $("#saveBtn").textContent = S.live ? "Version sichern" : (S.dirty ? "Speichern •" : "Gespeichert");
+  $("#saveBtn").textContent = S.live ? L("Version sichern", "Save version") : (S.dirty ? L("Speichern •", "Save •") : L("Gespeichert", "Saved"));
   $("#undoBtn").disabled = !S.undo.length; $("#redoBtn").disabled = !S.redo.length;
   if (S.cur) {
     const p = S.presets.find(x => x.rel === S.cur.rel);
     $("#presetName").textContent = (p ? p.name : S.cur.rel) + (S.dirty && !S.live ? " •" : "");
     const active = sameRel(S.state.active, S.cur.rel);
-    $("#presetMeta").innerHTML = (active ? '<span class="ok">● Aktiv im Spiel</span> · ' : "") + esc(S.cur.rel) +
-      (S.live ? ' · <span class="ok">Live: Änderungen gehen direkt in die Datei</span>' : "");
+    $("#presetMeta").innerHTML = (active ? '<span class="ok">● ' + L('Aktiv im Spiel', 'Active in game') + '</span> · ' : "") + esc(S.cur.rel) +
+      (S.live ? ' · <span class="ok">' + L('Live: Änderungen gehen direkt in die Datei', 'Live: changes go straight into the file') + '</span>' : "");
     $("#activateBtn").disabled = active;
   }
   ["activateBtn", "dupBtn", "renameBtn", "trashBtn"].forEach(id => $("#" + id).disabled = !S.cur || (id === "activateBtn" && sameRel(S.state.active, S.cur?.rel)));
@@ -213,7 +215,7 @@ function renderPresetList() {
     for (const p of groups[g]) {
       const act = sameRel(S.state.active, p.rel);
       box.append(h("div", { class: "pitem" + (S.cur && S.cur.rel === p.rel ? " sel" : ""), title: p.rel, onclick: () => openPreset(p.rel) },
-        p.name, act ? h("span", { class: "act" }, "● aktiv") : null));
+        p.name, act ? h("span", { class: "act" }, L("● aktiv", "● active")) : null));
     }
   }
 }
@@ -237,10 +239,10 @@ function renderStack() {
   const box = $("#stackList"); box.innerHTML = "";
   if (!S.cur) return;
   const { on, off } = stackEntries();
-  if (!on.length) box.append(h("div", { class: "empty" }, "Noch keine Effekte. Klick auf „+ Effekt“."));
+  if (!on.length) box.append(h("div", { class: "empty" }, L("Noch keine Effekte. Klick auf „+ Effekt“.", "No effects yet. Click \"+ Effect\".")));
   on.forEach((k, i) => box.append(fxItem(k, true, i)));
   if (off.length) {
-    box.append(h("div", { class: "stack-sep" }, "Im Preset gespeichert, aber aus"));
+    box.append(h("div", { class: "stack-sep" }, L("Im Preset gespeichert, aber aus", "Stored in preset, but off")));
     off.forEach(k => box.append(fxItem(k, false)));
   }
 }
@@ -248,12 +250,13 @@ function fxItem(key, on, idx) {
   const t = S.techByKey[key];
   const file = fileOf(key);
   const missing = S.techs.length && !t && !nameOf(key).startsWith("?");
-  const el = h("div", { class: "fx" + (S.sel === key ? " sel" : "") + (on ? "" : " off"), draggable: on ? "true" : null, onclick: () => { S.sel = key; renderEditor(); } },
+  const el = h("div", { class: "fx" + (S.sel === key ? " sel" : "") + (on ? "" : " off"), "data-tipfx": key, draggable: on ? "true" : null, onclick: () => { S.sel = key; renderEditor(); } },
     on ? h("span", { class: "grip" }, "⋮⋮") : null,
     h("div", { class: "nm" }, h("b", {}, t ? t.label : nameOf(key).replace(/^\?$/, file)), h("small", {}, file)),
-    t && t.pack ? h("span", { class: "badge pack", title: "Shader-Paket" }, t.pack) : null,
-    isFav(key) ? h("span", { class: "badge", title: "Favorit" }, "★") : null,
-    missing ? h("span", { class: "badge miss", title: "Shader-Datei nicht gefunden" }, "fehlt") : null,
+    t && t.pack ? h("span", { class: "badge pack", title: L("Shader-Paket", "Shader pack") }, t.pack) : null,
+    isFav(key) ? h("span", { class: "badge", title: L("Favorit", "Favorite") }, "★") : null,
+    missing ? h("span", { class: "badge miss", title: L("Shader-Datei nicht gefunden", "Shader file not found") }, "fehlt") : null,
+    perfBadge(key),
     nameOf(key) !== "?" ? h("label", { class: "tog", onclick: e => e.stopPropagation() },
       h("input", { type: "checkbox", checked: on, onchange: e => toggleFx(key, e.target.checked) }), h("span", { class: "sw" })) : null);
   if (on) {
@@ -291,14 +294,14 @@ async function chooseFolder(dir) {
   const f = dir || await window.vps.pickFolder();
   if (!f) return;
   try {
-    toast("Ordner wird eingelesen…");
+    toast(L("Ordner wird eingelesen…", "Reading folder…"));
     await api("/api/setfolder", { folder: f });
     S.cur = null; S.sel = null; S.fx = {}; S.dirty = false;
     await loadState(); await loadPresets(); await loadTechs();
     const act = S.presets.find(p => sameRel(p.rel, S.state.active));
     if (act) openPreset(act.rel); else renderEditor();
     updateStatus(); showView("editor");
-    toast("ReShade-Ordner gesetzt", true);
+    toast(L("ReShade-Ordner gesetzt", "ReShade folder set"), true);
   } catch (e) { toast(e.message); }
 }
 
@@ -307,7 +310,7 @@ let paramsToken = 0;
 async function renderParams() {
   const box = $("#params");
   const tok = ++paramsToken;
-  if (!S.cur || !S.sel) { box.innerHTML = '<div class="empty">Effekt in der Liste wählen.</div>'; return; }
+  if (!S.cur || !S.sel) { box.innerHTML = '<div class="empty">' + L('Effekt in der Liste wählen.', 'Pick an effect in the list.') + '</div>'; return; }
   const key = S.sel, file = fileOf(key);
   const d = await fxDetails(file).catch(() => null);
   if (tok !== paramsToken) return;
@@ -319,15 +322,18 @@ async function renderParams() {
     h("div", { class: "title" }, t ? t.label : file),
     h("span", { class: "muted" }, file),
     t && t.pack ? h("span", { class: "badge pack" }, t.pack) : null,
-    t ? h("button", { class: "small fav" + (isFav(key) ? " on" : ""), title: "Als Favorit markieren – Favoriten stehen im Effekt-Katalog ganz oben", onclick: () => toggleFav(key) }, isFav(key) ? "★ Favorit" : "☆ Favorit") : null,
+    perfBadge(key, true),
+    t ? h("button", { class: "small fav" + (isFav(key) ? " on" : ""), title: L("Als Favorit markieren – Favoriten stehen im Effekt-Katalog ganz oben", "Mark as favorite – favorites are on top of the effect catalog"), onclick: () => toggleFav(key) }, isFav(key) ? L("★ Favorit", "★ Favorite") : L("☆ Favorit", "☆ Favorite")) : null,
     h("div", { class: "spacer" }),
-    h("input", { type: "search", placeholder: "Regler suchen…", value: S.paramFilter, oninput: e => { S.paramFilter = e.target.value; renderParams().then(() => { const i = $(".phead input[type=search]"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }); } }),
-    h("button", { class: "small", onclick: () => takeFromModal(file) }, "Aus Preset übernehmen"),
-    h("button", { class: "small", onclick: () => resetFx(file, d) }, "Alles auf Standard"));
+    d && !d.missing && d.uniforms.some(u => isDN(u) || dnSide(u)) ? dnSwitch() : null,
+    h("input", { type: "search", placeholder: L("Regler suchen…", "Search settings…"), value: S.paramFilter, oninput: e => { S.paramFilter = e.target.value; renderParams().then(() => { const i = $(".phead input[type=search]"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }); } }),
+    h("button", { class: "small", onclick: () => takeFromModal(file) }, L("Aus Preset übernehmen", "Take from preset")),
+    h("button", { class: "small", onclick: () => resetFx(file, d) }, L("Alles auf Standard", "Reset all")));
   box.append(head);
+  box.className = "dn-" + S.dn;
   if (t?.tooltip) box.append(h("div", { class: "pdesc" }, t.tooltip));
   if (!d || d.missing) {
-    box.append(h("div", { class: "pdesc" }, "Shader-Datei nicht gefunden – Werte werden roh angezeigt."));
+    box.append(h("div", { class: "pdesc" }, L("Shader-Datei nicht gefunden – Werte werden roh angezeigt.", "Shader file not found – values are shown raw.")));
   }
   const unis = d && !d.missing ? d.uniforms : [];
   const known = new Set(unis.map(u => u.name));
@@ -335,7 +341,7 @@ async function renderParams() {
   const cats = new Map();
   for (const u of unis) {
     if (q && !(u.label + " " + u.name + " " + u.category).toLowerCase().includes(q)) continue;
-    const c = u.category || "Einstellungen";
+    const c = u.category || L("Einstellungen", "Settings");
     if (!cats.has(c)) cats.set(c, { closed: u.closed, list: [] });
     cats.get(c).list.push(u);
   }
@@ -360,9 +366,9 @@ async function renderParams() {
     for (const [k, v] of raw) {
       cb.append(h("div", { class: "row" }, h("div", { class: "lb", title: k }, k),
         h("input", { value: v, onchange: e => { beforeChange(); M.set(file, k, e.target.value); changed(); } }),
-        h("button", { class: "rs vis", title: "Eintrag entfernen", onclick: () => { beforeChange(); M.set(file, k, null); changed(true); } }, "✕")));
+        h("button", { class: "rs vis", title: L("Eintrag entfernen", "Remove entry"), onclick: () => { beforeChange(); M.set(file, k, null); changed(true); } }, "✕")));
     }
-    box.append(h("div", { class: "cat" }, h("div", { class: "ch" }, h("span", {}, "Weitere gespeicherte Werte"), h("span", { class: "muted" }, raw.length)), cb));
+    box.append(h("div", { class: "cat" }, h("div", { class: "ch" }, h("span", {}, L("Weitere gespeicherte Werte", "Other stored values")), h("span", { class: "muted" }, raw.length)), cb));
   }
   // defines
   if (d && d.defines && d.defines.length && !q) box.append(definesBlock(file, d));
@@ -371,7 +377,7 @@ async function renderParams() {
 
 function axisLabels(u) {
   const tt = (u.tooltip + " " + u.text).toUpperCase();
-  if (u.dim === 2 && tt.includes("DAY") && tt.includes("NIGHT")) return ["Tag", "Nacht"];
+  if (u.dim === 2 && isDN(u)) return [L("☀ Tag", "☀ Day"), L("☾ Nacht", "☾ Night")];
   if (u.dim === 2) return ["X", "Y"];
   if (u.dim === 3) return ["R", "G", "B"];
   if (u.dim === 4) return ["R", "G", "B", "A"];
@@ -391,7 +397,8 @@ function paramRow(file, u) {
   const cur = stored || u.default.slice();
   const mod = stored && !sameVals(stored, u.default);
   const setV = vals => { beforeChange(); M.set(file, u.name, fmtVals(u, vals)); lb.classList.toggle("mod", !sameVals(vals, u.default)); rs.classList.toggle("vis", !sameVals(vals, u.default)); changed(); };
-  const lb = h("div", { class: "lb" + (mod ? " mod" : ""), title: (u.tooltip ? u.tooltip + "\n\n" : "") + u.name }, u.label.trim() || u.name, u.label.trim() !== u.name ? h("small", {}, u.name) : null);
+  const lb = h("div", { class: "lb" + (mod ? " mod" : "") }, u.label.trim() || u.name, u.label.trim() !== u.name ? h("small", {}, u.name) : null);
+  lb._tip = { file, u };
   const rs = h("button", { class: "rs" + (mod ? " vis" : ""), title: "Standard: " + u.default.join(", "), onclick: () => { beforeChange(); M.set(file, u.name, fmtVals(u, u.default)); changed(); renderParams(); } }, "↺");
   let ctl;
   const isInt = u.base === "int" || u.base === "uint";
@@ -415,16 +422,17 @@ function paramRow(file, u) {
       const rng = h("input", { type: "range", min: mn, max: mx, step, value: v });
       rng.addEventListener("input", () => { num.value = isInt ? Math.round(rng.value) : (+rng.value).toFixed(4); push(); });
       num.addEventListener("change", () => { rng.value = num.value; push(); });
-      return { el: h("div", { class: "sl" }, u.dim > 1 ? h("span", { class: "ax" }, labels[i]) : null, rng, num), num };
+      return { el: h("div", { class: "sl" + (u.dim === 2 && isDN(u) ? (i ? " dn-night" : " dn-day") : "") }, u.dim > 1 ? h("span", { class: "ax" }, labels[i]) : null, rng, num), num };
     });
     const push = () => setV(rows.map(r => +r.num.value));
     ctl = h("div", { class: "ctl" }, rows.map(r => r.el));
   }
-  return h("div", { class: "row" }, lb, ctl, rs);
+  const side = u.dim === 1 ? dnSide(u) : "";
+  return h("div", { class: "row" + (side ? " dn-" + side : "") }, lb, ctl, rs);
 }
 function resetFx(file, d) {
   if (!d || d.missing) return;
-  if (!confirm("Alle Regler von " + file + " auf Standard setzen?")) return;
+  if (!confirm(L("Alle Regler von ", "Reset all settings of ") + file + L(" auf Standard setzen?", "?"))) return;
   beforeChange();
   for (const u of d.uniforms) M.set(file, u.name, null);
   changed(true);
@@ -432,7 +440,7 @@ function resetFx(file, d) {
 function definesBlock(file, d) {
   const cur = M.defines(file);
   const cb = h("div", { class: "cb" },
-    h("div", { class: "note" }, "Shader-Optionen (Preprocessor). Änderungen brauchen im Spiel einen Shader-Reload. Leer = Standardwert."));
+    h("div", { class: "note" }, L("Shader-Optionen (Preprocessor). Änderungen brauchen im Spiel einen Shader-Reload. Leer = Standardwert.", "Shader options (preprocessor). Changes need a shader reload in game. Empty = default.")));
   const own = d.defines.filter(x => x.own), inc = d.defines.filter(x => !x.own);
   const mk = df => {
     const isTex = /\.(png|jpe?g|bmp|dds|tga)"?$/i.test(df.default) || /(TEXTURE|LUT_?FILE|FILE_?NAME|TEXNAME|_TEX\b)/i.test(df.name);
@@ -441,24 +449,24 @@ function definesBlock(file, d) {
     } });
     return h("div", { class: "defrow" }, h("div", { class: "lb", title: df.name }, df.name),
       inp,
-      isTex ? h("button", { class: "small", onclick: () => texturePicker(name => { inp.value = `"${name}"`; inp.dispatchEvent(new Event("change")); }) }, "Textur…") : h("span"));
+      isTex ? h("button", { class: "small", onclick: () => texturePicker(name => { inp.value = `"${name}"`; inp.dispatchEvent(new Event("change")); }) }, L("Textur…", "Texture…")) : h("span"));
   };
   own.forEach(df => cb.append(mk(df)));
   if (inc.length) {
     const more = h("div", { class: "hidden" }, inc.map(mk));
-    cb.append(h("button", { class: "small", style: "margin-top:6px", onclick: e => { more.classList.toggle("hidden"); e.target.remove(); } }, `+ ${inc.length} weitere aus Include-Dateien`), more);
+    cb.append(h("button", { class: "small", style: "margin-top:6px", onclick: e => { more.classList.toggle("hidden"); e.target.remove(); } }, L(`+ ${inc.length} weitere aus Include-Dateien`, `+ ${inc.length} more from include files`)), more);
   }
   return h("div", { class: "cat" + (S.collapsed["d:" + file] ? " closed" : "") },
     h("div", { class: "ch", onclick: e => { const c = e.currentTarget.parentNode; c.classList.toggle("closed"); S.collapsed["d:" + file] = c.classList.contains("closed"); saveCollapsed(); } },
-      h("span", {}, "SHADER-OPTIONEN / TEXTUREN"), h("span", { class: "muted" }, d.defines.length)), cb);
+      h("span", {}, L("SHADER-OPTIONEN / TEXTUREN", "SHADER OPTIONS / TEXTURES")), h("span", { class: "muted" }, d.defines.length)), cb);
 }
 function renderEditor() { renderStack(); renderParams(); updateTop(); }
 
 // ============================================================ modals
-function modal(title, body, buttons = []) {
+function modal(title, body, buttons = [], onClose) {
   const m = $("#modal"), box = $(".modal-box", m);
   box.innerHTML = "";
-  const close = () => m.classList.add("hidden");
+  const close = () => { if (m.classList.contains("hidden")) return; m.classList.add("hidden"); if (onClose) onClose(); };
   box.append(h("div", { class: "mh" }, h("div", { class: "title" }, title), h("button", { class: "icon", onclick: close }, "✕")),
     h("div", { class: "mb" }, body));
   if (buttons.length) box.append(h("div", { class: "mf" }, buttons.map(([lab, fn, cls]) => h("button", { class: cls || "", onclick: async () => { if ((await fn()) !== false) close(); } }, lab))));
@@ -470,15 +478,15 @@ function addFxModal() {
   if (!S.cur) return;
   const en = new Set(M.enabled());
   const list = h("div", { class: "cat-list" });
-  const inp = h("input", { placeholder: "Effekt suchen (z. B. bloom, lut, sharpen)…", style: "width:100%" });
+  const inp = h("input", { placeholder: L("Effekt suchen (z. B. bloom, lut, sharpen)…", "Search effect (e.g. bloom, lut, sharpen)…"), style: "width:100%" });
   const draw = () => {
     list.innerHTML = "";
     const q = inp.value.toLowerCase();
-    const groups = new Map([["★ Favoriten", []]]);
+    const groups = new Map([[L("★ Favoriten", "★ Favorites"), []]]);
     for (const t of S.techs) {
       const k = `${t.name}@${t.file}`;
       if (q && !(t.label + " " + t.name + " " + t.file + " " + t.folder).toLowerCase().includes(q)) continue;
-      const g = isFav(k) ? "★ Favoriten" : (t.pack || "Standard");
+      const g = isFav(k) ? L("★ Favoriten", "★ Favorites") : (t.pack || L("Standard", "Standard"));
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g).push([k, t]);
     }
@@ -488,25 +496,25 @@ function addFxModal() {
       list.append(h("div", { class: "grp" }, g));
       for (const [k, t] of arr) {
         if (n++ > 400) break;
-        list.append(h("div", { class: "tech", title: t.tooltip, onclick: () => { toggleFx(k, true); S.sel = k; close(); renderEditor(); } },
-          h("b", {}, t.label), h("small", {}, t.file), en.has(k) ? h("span", { class: "in" }, "✓ schon drin") : null));
+        list.append(h("div", { class: "tech", "data-tipfx": k, onclick: () => { toggleFx(k, true); S.sel = k; close(); renderEditor(); } },
+          h("b", {}, t.label), h("small", {}, t.file), perfBadge(k), en.has(k) ? h("span", { class: "in" }, L("✓ schon drin", "✓ already in")) : null));
       }
     }
   };
   inp.oninput = draw;
-  const close = modal("Effekt hinzufügen", h("div", {}, inp, list));
+  const close = modal(L("Effekt hinzufügen", "Add effect"), h("div", {}, inp, list));
   draw(); inp.focus();
 }
 function texturePicker(onPick) {
   api("/api/textures").then(tex => {
     const grid = h("div", { class: "grid" });
-    const inp = h("input", { placeholder: "Textur suchen…", style: "width:100%;margin-bottom:12px" });
+    const inp = h("input", { placeholder: L("Textur suchen…", "Search texture…"), style: "width:100%;margin-bottom:12px" });
     const draw = () => {
       grid.innerHTML = ""; const q = inp.value.toLowerCase();
       tex.filter(t => !q || t.rel.toLowerCase().includes(q)).slice(0, 300).forEach(t => grid.append(texTile(t, () => { onPick(t.rel.replace(/\\/g, "/")); close(); })));
     };
     inp.oninput = draw;
-    const close = modal("Textur wählen", h("div", {}, inp, grid)); draw(); inp.focus();
+    const close = modal(L("Textur wählen", "Choose texture"), h("div", {}, inp, grid)); draw(); inp.focus();
   });
 }
 function texTile(t, onclick) {
@@ -516,29 +524,29 @@ function texTile(t, onclick) {
 }
 async function takeFromModal(file) {
   const sel = h("select", { style: "width:100%" }, S.presets.filter(p => p.rel !== S.cur.rel).map(p => h("option", { value: p.rel }, `${p.folder} / ${p.name}`)));
-  const info = h("p", { class: "muted" }, `Kopiert alle Werte von ${file} aus dem gewählten Preset in dieses.`);
-  modal("Werte aus anderem Preset übernehmen", h("div", {}, info, sel), [
-    ["Abbrechen", () => true],
-    ["Übernehmen", async () => {
+  const info = h("p", { class: "muted" }, L(`Kopiert alle Werte von ${file} aus dem gewählten Preset in dieses.`, `Copies all values of ${file} from the chosen preset into this one.`));
+  modal(L("Werte aus anderem Preset übernehmen", "Take values from another preset"), h("div", {}, info, sel), [
+    [L("Abbrechen", "Cancel"), () => true],
+    [L("Übernehmen", "Apply"), async () => {
       const r = await api("/api/preset?rel=" + enc(sel.value));
       const src = r.model.sections.find(s => s.name.toLowerCase() === file.toLowerCase());
-      if (!src) { toast("Das Preset hat keine Werte für " + file); return false; }
+      if (!src) { toast(L("Das Preset hat keine Werte für ", "That preset has no values for ") + file); return false; }
       beforeChange();
       const dst = M.sec(file, true); dst.items = clone(src.items);
-      changed(true); toast("Werte übernommen", true);
+      changed(true); toast(L("Werte übernommen", "Values taken over"), true);
     }, "primary"]]);
 }
 function newPresetModal(base) {
-  const name = h("input", { value: base ? (base.name + " Kopie") : "", placeholder: "z. B. Mein Preset" });
+  const name = h("input", { value: base ? (base.name + L(" Kopie", " copy")) : "", placeholder: L("z. B. Mein Preset", "e.g. My preset") });
   const folder = h("input", { value: "Eigene" });
   const tmpl = h("select", {},
-    base ? h("option", { value: "copy" }, "Kopie von „" + base.name + "“") : null,
-    (S.state.favorites || []).length ? h("option", { value: "favs" }, "Mit meinen Favoriten-Effekten") : null,
-    h("option", { value: "empty" }, "Leer"));
-  modal(base ? "Preset duplizieren" : "Neues Preset", h("div", { class: "form" },
-    h("label", {}, "Name"), name, h("label", {}, "Ordner"), folder, h("label", {}, "Start"), tmpl), [
-    ["Abbrechen", () => true],
-    ["Erstellen", async () => {
+    base ? h("option", { value: "copy" }, L("Kopie von „", "Copy of \"") + base.name + "“") : null,
+    (S.state.favorites || []).length ? h("option", { value: "favs" }, L("Mit meinen Favoriten-Effekten", "With my favorite effects")) : null,
+    h("option", { value: "empty" }, L("Leer", "Empty")));
+  modal(base ? L("Preset duplizieren", "Duplicate preset") : L("Neues Preset", "New preset"), h("div", { class: "form" },
+    h("label", {}, "Name"), name, h("label", {}, L("Ordner", "Folder")), folder, h("label", {}, "Start"), tmpl), [
+    [L("Abbrechen", "Cancel"), () => true],
+    [L("Erstellen", "Create"), async () => {
       let model = { global: [["Techniques", ""], ["TechniqueSorting", ""]], sections: [] };
       if (tmpl.value === "copy") model = clone(base.model);
       if (tmpl.value === "favs") {
@@ -547,7 +555,7 @@ function newPresetModal(base) {
       }
       try {
         const r = await api("/api/new", { name: name.value, folder: folder.value, model });
-        await loadPresets(); await openPreset(r.rel); toast("Preset erstellt", true);
+        await loadPresets(); await openPreset(r.rel); toast(L("Preset erstellt", "Preset created"), true);
       } catch (e) { toast(e.message); return false; }
     }, "primary"]]);
   name.focus(); name.select();
@@ -559,11 +567,11 @@ function showView(v) {
   $$("#views button").forEach(b => b.classList.toggle("on", b.dataset.view === v));
   $$(".view").forEach(el => el.classList.add("hidden"));
   $("#view-" + v).classList.remove("hidden");
-  ({ editor: renderEditor, compare: renderCompare, textures: renderTextures, shots: renderShots, versions: renderVersions, setup: renderSetup })[v]?.();
+  ({ editor: renderEditor, packs: renderPacks, compare: renderCompare, textures: renderTextures, shots: renderShots, versions: renderVersions, setup: renderSetup })[v]?.();
 }
 function needPreset(el) {
   if (S.cur) return false;
-  el.innerHTML = '<div class="empty">Zuerst links ein Preset wählen.</div>'; return true;
+  el.innerHTML = '<div class="empty">' + L('Zuerst links ein Preset wählen.', 'Pick a preset on the left first.') + '</div>'; return true;
 }
 
 // ---- compare
@@ -573,23 +581,23 @@ async function renderCompare() {
   if (needPreset(el)) return;
   el.innerHTML = "";
   const sel = h("select", { onchange: e => { cmpRel = e.target.value; renderCompare(); } },
-    h("option", { value: "" }, "— Preset zum Vergleichen wählen —"),
+    h("option", { value: "" }, L("— Preset zum Vergleichen wählen —", "— pick a preset to compare —")),
     S.presets.filter(p => p.rel !== S.cur.rel).map(p => h("option", { value: p.rel, selected: p.rel === cmpRel }, `${p.folder} / ${p.name}`)));
-  el.append(h("div", { class: "toolbar" }, h("b", {}, "Dieses Preset"), h("span", { class: "muted" }, "vs."), sel,
-    h("span", { class: "muted" }, "→ einzelne Werte oder ganze Effekte rüberholen")));
+  el.append(h("div", { class: "toolbar" }, h("b", {}, L("Dieses Preset", "This preset")), h("span", { class: "muted" }, "vs."), sel,
+    h("span", { class: "muted" }, L("→ einzelne Werte oder ganze Effekte rüberholen", "→ take single values or whole effects"))));
   if (!cmpRel) return;
   const other = (await api("/api/preset?rel=" + enc(cmpRel))).model;
-  el.append(diffTable(S.cur.model, other, "Anderes Preset"));
+  el.append(diffTable(S.cur.model, other, L("Anderes Preset", "Other preset")));
 }
 function diffTable(a, b, bName) {
-  const tbl = h("table", { class: "diff" }, h("tr", {}, h("th", {}, "Wert"), h("th", {}, "Dieses"), h("th", {}, bName), h("th", {}, "")));
+  const tbl = h("table", { class: "diff" }, h("tr", {}, h("th", {}, L("Wert", "Value")), h("th", {}, L("Dieses", "This")), h("th", {}, bName), h("th", {}, "")));
   const listOf = (m, k) => ((m.global.find(i => i[0] === k) || [])[1] || "").split(",").filter(Boolean);
   const ea = listOf(a, "Techniques"), eb = listOf(b, "Techniques");
   const onlyB = eb.filter(k => !ea.includes(k)), onlyA = ea.filter(k => !eb.includes(k));
   if (onlyA.length || onlyB.length || ea.join() !== eb.join()) {
-    tbl.append(h("tr", { class: "sec" }, h("td", { colspan: 3 }, "Aktive Effekte"), h("td", {},
-      h("button", { class: "small", onclick: () => { beforeChange(); M.setOrder(eb, listOf(b, "TechniqueSorting")); changed(true); renderCompare(); toast("Effektliste übernommen", true); } }, "Liste übernehmen"))));
-    tbl.append(h("tr", {}, h("td", {}, "Reihenfolge/Auswahl"), h("td", { class: "v" }, ea.map(nameOf).join(", ") || "—"), h("td", { class: "v" }, eb.map(nameOf).join(", ") || "—"), h("td")));
+    tbl.append(h("tr", { class: "sec" }, h("td", { colspan: 3 }, L("Aktive Effekte", "Active effects")), h("td", {},
+      h("button", { class: "small", onclick: () => { beforeChange(); M.setOrder(eb, listOf(b, "TechniqueSorting")); changed(true); renderCompare(); toast(L("Effektliste übernommen", "Effect list taken over"), true); } }, L("Liste übernehmen", "Take list")))));
+    tbl.append(h("tr", {}, h("td", {}, L("Reihenfolge/Auswahl", "Order/selection")), h("td", { class: "v" }, ea.map(nameOf).join(", ") || "—"), h("td", { class: "v" }, eb.map(nameOf).join(", ") || "—"), h("td")));
   }
   const names = [...new Set([...a.sections, ...b.sections].map(s => s.name))].sort();
   let count = 0;
@@ -600,7 +608,7 @@ function diffTable(a, b, bName) {
     if (!keys.length) continue;
     count += keys.length;
     tbl.append(h("tr", { class: "sec" }, h("td", { colspan: 3 }, n), h("td", {},
-      sb ? h("button", { class: "small", onclick: () => { beforeChange(); M.sec(n, true).items = clone(sb.items); changed(); renderCompare(); toast(n + " übernommen", true); } }, "Ganzen Effekt") : null)));
+      sb ? h("button", { class: "small", onclick: () => { beforeChange(); M.sec(n, true).items = clone(sb.items); changed(); renderCompare(); toast(n + L(" übernommen", " taken over"), true); } }, L("Ganzen Effekt", "Whole effect")) : null)));
     for (const k of keys) {
       tbl.append(h("tr", {}, h("td", {}, k),
         h("td", { class: "v" + (ma[k] == null ? " na" : "") }, ma[k] ?? "Standard"),
@@ -608,7 +616,7 @@ function diffTable(a, b, bName) {
         h("td", {}, h("button", { class: "small", onclick: () => { beforeChange(); M.set(n, k, mb[k] ?? null); changed(); renderCompare(); } }, "←"))));
     }
   }
-  if (!count && ea.join() === eb.join()) return h("div", { class: "empty" }, "Keine Unterschiede.");
+  if (!count && ea.join() === eb.join()) return h("div", { class: "empty" }, L("Keine Unterschiede.", "No differences."));
   return tbl;
 }
 function numEq(x, y) {
@@ -622,19 +630,19 @@ function numEq(x, y) {
 async function renderTextures() {
   const el = $("#view-textures"); el.className = "view scroll"; el.innerHTML = "";
   const tex = await api("/api/textures");
-  const inp = h("input", { placeholder: "Suchen…", style: "width:260px" });
+  const inp = h("input", { placeholder: L("Suchen…", "Search…"), style: "width:260px" });
   const grid = h("div", { class: "grid" });
   const draw = () => {
     grid.innerHTML = ""; const q = inp.value.toLowerCase();
     tex.filter(t => !q || t.rel.toLowerCase().includes(q)).forEach(t => grid.append(texTile(t, () => {
       const big = h("img", { src: `vps://texture/?rel=${enc(t.rel)}`, style: "max-width:100%;max-height:60vh;display:block;margin:auto;background:#000" });
-      modal(t.rel, h("div", {}, big, h("p", { class: "muted" }, "Name für Shader-Optionen: \"" + t.rel.replace(/\\/g, "/") + "\"")), [
-        ["Namen kopieren", () => { navigator.clipboard.writeText(`"${t.rel.replace(/\\/g, "/")}"`); toast("Kopiert", true); }], ["Schließen", () => true]]);
+      modal(t.rel, h("div", {}, big, h("p", { class: "muted" }, L("Name für Shader-Optionen: \"", "Name for shader options: \"") + t.rel.replace(/\\/g, "/") + "\"")), [
+        [L("Namen kopieren", "Copy name"), () => { navigator.clipboard.writeText(`"${t.rel.replace(/\\/g, "/")}"`); toast(L("Kopiert", "Copied"), true); }], [L("Schließen", "Close"), () => true]]);
     })));
   };
   inp.oninput = draw;
-  el.append(h("div", { class: "toolbar" }, h("b", {}, tex.length + " Texturen"), inp,
-    h("span", { class: "muted" }, "LUTs, Lens-Dirt, Masken usw. aus reshade-shaders\\Textures. Auswahl im Editor über „Shader-Optionen / Texturen“.")), grid);
+  el.append(h("div", { class: "toolbar" }, h("b", {}, tex.length + L(" Texturen", " textures")), inp,
+    h("span", { class: "muted" }, L("LUTs, Lens-Dirt, Masken usw. aus reshade-shaders\\Textures. Auswahl im Editor über „Shader-Optionen / Texturen“.", "LUTs, lens dirt, masks etc. from reshade-shaders\\Textures. Pick them in the editor under \"Shader options / textures\"."))), grid);
   draw();
 }
 
@@ -645,23 +653,23 @@ async function renderShots() {
   await loadState();
   const st = S.state;
   if (!st.shotsSetup || st.savePresetFile !== "1") {
-    el.append(h("div", { class: "card" }, h("h3", {}, "Screenshots mit Preset verknüpfen"),
-      h("p", {}, "Stellt ReShade so ein, dass Screenshots (Druck-Taste) im Ordner von Preset Studio landen und das benutzte Preset jeweils mit gespeichert wird. So siehst du hier, welches Preset wie aussieht, und kannst Bilder nebeneinander vergleichen."),
-      st.game ? h("p", { class: "wrn" }, "Das Spiel läuft gerade – erst schließen, sonst überschreibt ReShade die Einstellung.") : null,
+    el.append(h("div", { class: "card" }, h("h3", {}, L("Screenshots mit Preset verknüpfen", "Link screenshots to presets")),
+      h("p", {}, L("Stellt ReShade so ein, dass Screenshots (Druck-Taste) im Ordner von Preset Studio landen und das benutzte Preset jeweils mit gespeichert wird. So siehst du hier, welches Preset wie aussieht, und kannst Bilder nebeneinander vergleichen.", "Sets ReShade up so screenshots (Print key) land in the Preset Studio folder together with the preset used. Then you can see here which preset looks how and compare pictures side by side.")),
+      st.game ? h("p", { class: "wrn" }, L("Das Spiel läuft gerade – erst schließen, sonst überschreibt ReShade die Einstellung.", "The game is running – close it first, otherwise ReShade overwrites the setting.")) : null,
       h("button", { class: "primary", disabled: st.game, onclick: async () => {
-        try { await api("/api/inisettings", { set: [["SCREENSHOT", "SavePath", "__SHOTS__"], ["SCREENSHOT", "SavePresetFile", "1"]] }); toast("Eingerichtet", true); renderShots(); }
+        try { await api("/api/inisettings", { set: [["SCREENSHOT", "SavePath", "__SHOTS__"], ["SCREENSHOT", "SavePresetFile", "1"]] }); toast(L("Eingerichtet", "Set up"), true); renderShots(); }
         catch (e) { toast(e.message); }
-      } }, "Jetzt einrichten")));
+      } }, L("Jetzt einrichten", "Set up now"))));
   }
   const shots = await api("/api/shots");
   shotSel = shotSel.filter(n => shots.some(s => s.name === n));
-  el.append(h("div", { class: "toolbar" }, h("b", {}, shots.length + " Screenshots"),
-    h("span", { class: "muted" }, "Klick = ansehen · Strg+Klick = 2 für Vorher/Nachher wählen"),
+  el.append(h("div", { class: "toolbar" }, h("b", {}, shots.length + L(" Screenshots", " screenshots")),
+    h("span", { class: "muted" }, L("Klick = ansehen · Strg+Klick = 2 für Vorher/Nachher wählen", "Click = view · Ctrl+click = pick 2 for before/after")),
     h("div", { class: "spacer" }),
-    h("button", { disabled: shotSel.length !== 2, onclick: () => compareShots(shotSel[0], shotSel[1]) }, "Vergleichen (" + shotSel.length + "/2)"),
-    h("button", { onclick: () => openFolder("shots") }, "Ordner öffnen"),
-    h("button", { onclick: renderShots }, "Aktualisieren")));
-  if (!shots.length) el.append(h("div", { class: "empty" }, "Noch keine Screenshots. Im Spiel Druck-Taste drücken."));
+    h("button", { disabled: shotSel.length !== 2, onclick: () => compareShots(shotSel[0], shotSel[1]) }, L("Vergleichen (", "Compare (") + shotSel.length + "/2)"),
+    h("button", { onclick: () => openFolder("shots") }, L("Ordner öffnen", "Open folder")),
+    h("button", { onclick: renderShots }, L("Aktualisieren", "Refresh"))));
+  if (!shots.length) el.append(h("div", { class: "empty" }, L("Noch keine Screenshots. Im Spiel Druck-Taste drücken.", "No screenshots yet. Press Print in game.")));
   const grid = h("div", { class: "grid shots" });
   for (const s of shots) {
     const im = h("div", { class: "im" }); im.style.backgroundImage = `url('vps://shot/?name=${enc(s.name)}&size=480')`;
@@ -674,9 +682,9 @@ async function renderShots() {
 }
 function viewShot(s) {
   const body = h("div", {}, h("img", { src: `vps://shot/?name=${enc(s.name)}`, style: "width:100%;display:block;border-radius:8px" }),
-    h("p", { class: "muted" }, s.name + (s.preset ? " · Preset mitgespeichert" : "")));
-  const btns = [["Schließen", () => true]];
-  if (s.preset) btns.unshift(["Als neues Preset speichern", async () => {
+    h("p", { class: "muted" }, s.name + (s.preset ? L(" · Preset mitgespeichert", " · preset stored") : "")));
+  const btns = [[L("Schließen", "Close"), () => true]];
+  if (s.preset) btns.unshift([L("Als neues Preset speichern", "Save as new preset"), async () => {
     const r = await api("/api/shotpreset?name=" + enc(s.name));
     newPresetModal({ name: "Screenshot " + new Date(s.mtime * 1000).toLocaleDateString("de-DE"), model: r.model }); return false;
   }, "primary"]);
@@ -696,7 +704,7 @@ function compareShots(a, b) {
   wrap.addEventListener("pointerup", () => drag = false);
   const move = e => { const r = wrap.getBoundingClientRect(); setX((e.clientX - r.left) / r.width); };
   setX(.5);
-  modal("Vorher / Nachher", h("div", {}, wrap, h("p", { class: "muted" }, "A: " + a + "  ·  B: " + b)));
+  modal(L("Vorher / Nachher", "Before / after"), h("div", {}, wrap, h("p", { class: "muted" }, "A: " + a + "  ·  B: " + b)));
   $(".modal-box").style.width = "min(1500px, 96vw)";
 }
 
@@ -705,25 +713,25 @@ async function renderVersions() {
   const el = $("#view-versions"); el.className = "view scroll";
   if (needPreset(el)) return;
   el.innerHTML = "";
-  const lab = h("input", { placeholder: "Name für die Version (optional)", style: "width:280px" });
+  const lab = h("input", { placeholder: L("Name für die Version (optional)", "Name for the version (optional)"), style: "width:280px" });
   el.append(h("div", { class: "toolbar" }, lab,
-    h("button", { class: "primary", onclick: async () => { await save({ label: lab.value || "manuell" }); renderVersions(); } }, "Version jetzt sichern"),
-    h("button", { onclick: () => openFolder("versions") }, "Ordner öffnen")));
-  el.append(h("p", { class: "muted" }, "Jedes Speichern legt automatisch eine Sicherung an (die letzten 60 bleiben). Im Live-Modus wird einmal vor der ersten Änderung gesichert."));
+    h("button", { class: "primary", onclick: async () => { await save({ label: lab.value || "manuell" }); renderVersions(); } }, L("Version jetzt sichern", "Save version now")),
+    h("button", { onclick: () => openFolder("versions") }, L("Ordner öffnen", "Open folder"))));
+  el.append(h("p", { class: "muted" }, L("Jedes Speichern legt automatisch eine Sicherung an (die letzten 60 bleiben). Im Live-Modus wird einmal vor der ersten Änderung gesichert.", "Every save stores a backup automatically (the last 60 are kept). In live mode one backup is made before the first change.")));
   const vs = await api("/api/versions?rel=" + enc(S.cur.rel));
-  if (!vs.length) { el.append(h("div", { class: "empty" }, "Noch keine Versionen.")); return; }
+  if (!vs.length) { el.append(h("div", { class: "empty" }, L("Noch keine Versionen.", "No versions yet."))); return; }
   const out = h("div");
   for (const v of vs) {
     out.append(h("div", { class: "card", style: "display:flex;gap:10px;align-items:center;padding:10px 14px;margin-bottom:8px" },
       h("b", { style: "flex:1" }, v.name.replace(/\.ini$/, "").replace("_", " ").replace(/-(\d\d)-(\d\d)( |$)/, ":$1:$2$3")),
       h("button", { class: "small", onclick: async () => {
         const r = await api(`/api/version?rel=${enc(S.cur.rel)}&name=${enc(v.name)}`);
-        modal("Unterschiede: aktuell vs. " + v.name, diffTable(S.cur.model, r.model, "Version"));
-      } }, "Unterschiede"),
+        modal(L("Unterschiede: aktuell vs. ", "Differences: current vs. ") + v.name, diffTable(S.cur.model, r.model, L("Version", "Version")));
+      } }, L("Unterschiede", "Differences")),
       h("button", { class: "small primary", onclick: async () => {
         const r = await api(`/api/version?rel=${enc(S.cur.rel)}&name=${enc(v.name)}`);
-        beforeChange(); S.cur.model = r.model; changed(); toast("Version geladen" + (S.live ? " und live geschrieben" : " – noch speichern"), true); showView("editor");
-      } }, "Wiederherstellen")));
+        beforeChange(); S.cur.model = r.model; changed(); toast(L("Version geladen", "Version loaded") + (S.live ? L(" und live geschrieben", " and written live") : L(" – noch speichern", " – remember to save")), true); showView("editor");
+      } }, L("Wiederherstellen", "Restore"))));
   }
   el.append(out);
 }
@@ -733,22 +741,27 @@ async function renderSetup() {
   const el = $("#view-setup"); el.className = "view scroll"; el.innerHTML = "";
   await loadState();
   const st = S.state;
-  const vkNames = { 0: "keine", 116: "F5", 117: "F6", 118: "F7", 119: "F8", 120: "F9", 121: "F10", 122: "F11", 123: "F12", 45: "Einfg", 36: "Pos1", 109: "Num -", 107: "Num +", 44: "Druck" };
+  const vkNames = { 0: L("keine", "none"), 116: "F5", 117: "F6", 118: "F7", 119: "F8", 120: "F9", 121: "F10", 122: "F11", 123: "F12", 45: L("Einfg", "Ins"), 36: L("Pos1", "Home"), 109: "Num -", 107: "Num +", 44: L("Druck", "Print") };
   const vk = s => vkNames[(s || "0").split(",")[0]] || ("VK " + (s || "0").split(",")[0]);
   const rk = h("select", {}, [0, 116, 117, 118, 119, 120, 121, 122, 123, 45, 36].map(c => h("option", { value: c, selected: String(c) === (st.reloadKey || "0").split(",")[0] }, vkNames[c])));
   el.append(
-    h("div", { class: "card" }, h("h3", {}, "ReShade-Ordner"),
-      h("p", {}, "Der Ordner, in dem ReShade.ini liegt (meist neben der Spiel-.exe, bei manchen Spielen im plugins-Ordner)."),
-      h("div", { class: "toolbar" }, h("b", {}, st.folder || "noch keiner gewählt"),
-        st.folderOk ? h("span", { class: "ok" }, "✓ ReShade.ini gefunden") : h("span", { class: "bad" }, "✕ keine ReShade.ini"),
+    h("div", { class: "card" }, h("h3", {}, L("ReShade-Ordner", "ReShade folder")),
+      h("p", {}, L("Der Ordner, in dem ReShade.ini liegt (meist neben der Spiel-.exe, bei manchen Spielen im plugins-Ordner).", "The folder that contains ReShade.ini (usually next to the game .exe, for some games in a plugins folder).")),
+      h("div", { class: "toolbar" }, h("b", {}, st.folder || L("noch keiner gewählt", "none chosen yet")),
+        st.folderOk ? h("span", { class: "ok" }, L("✓ ReShade.ini gefunden", "✓ ReShade.ini found")) : h("span", { class: "bad" }, L("✕ keine ReShade.ini", "✕ no ReShade.ini")),
         h("div", { class: "spacer" }),
-        h("button", { class: "primary", onclick: () => chooseFolder() }, "Ordner wählen…"),
-        st.folderOk ? h("button", { onclick: () => openFolder("reshade") }, "Öffnen") : null),
-      (st.recent || []).filter(r => r !== st.folder).length ? h("div", {}, h("p", {}, "Zuletzt benutzt:"),
+        h("button", { class: "primary", onclick: () => chooseFolder() }, L("Ordner wählen…", "Choose folder…")),
+        st.folderOk ? h("button", { onclick: () => openFolder("reshade") }, L("Öffnen", "Open")) : null),
+      (st.recent || []).filter(r => r !== st.folder).length ? h("div", {}, h("p", {}, L("Zuletzt benutzt:", "Recently used:")),
         ...(st.recent || []).filter(r => r !== st.folder).map(r => h("div", { class: "tech", onclick: () => chooseFolder(r) }, r))) : null),
     await remoteCard(),
-    h("div", { class: "card" }, h("h3", {}, "So testest du im Spiel"),
-      h("ol", { class: "steps", html: `
+    h("div", { class: "card" }, h("h3", {}, L("So testest du im Spiel", "How to test in game")),
+      h("ol", { class: "steps", html: LANG === "en" ? `
+        <li>Pick a preset here and click <b>"Set active in game"</b> (the game must be closed).</li>
+        <li>Start the game. Turn on <b>Live</b> at the top right.</li>
+        <li>Move sliders here – the preset is saved instantly.</li>
+        <li>Reload in game: <b>reload key</b> (set below) or <b>"Reload"</b> on the ReShade home page. Keep the ReShade menu <b>closed</b>, otherwise ReShade saves its own values over yours.</li>
+        <li>Take screenshots with <b>Print</b> → tab "Screenshots" → pick two → before/after.</li>` : `
         <li>Preset hier wählen und <b>„Im Spiel aktiv setzen“</b> (das Spiel muss dafür zu sein).</li>
         <li>Spiel starten. <b>Live</b> oben rechts einschalten.</li>
         <li>Regler hier bewegen – das Preset wird sofort gespeichert.</li>
@@ -756,22 +769,22 @@ async function renderSetup() {
             Das ReShade-Menü dabei <b>geschlossen</b> lassen, sonst speichert ReShade seine eigenen Werte drüber.</li>
         <li>Mit <b>Druck</b> Screenshots machen → Tab „Screenshots“ → zwei wählen → Vorher/Nachher.</li>` })),
     h("div", { class: "card" }, h("h3", {}, "Status"),
-      h("p", {}, "ReShade-Ordner: ", h("b", {}, st.folder || "—"), " ", st.folderOk ? h("span", { class: "ok" }, "✓ ReShade.ini gefunden") : h("span", { class: "bad" }, "✕ keine ReShade.ini")),
-      h("p", {}, "Aktives Preset im Spiel: ", h("b", {}, st.active || "—")),
-      h("p", {}, "Spiel: ", st.game ? h("span", { class: "wrn" }, "läuft (ReShade.ini-Änderungen erst nach dem Schließen möglich)") : h("span", { class: "ok" }, "aus")),
-      h("p", {}, `Shader: ${st.fxCount} Dateien, ${S.techs.length} Effekte · Overlay-Taste: ${vk(st.overlayKey)} · Reload-Taste: ${vk(st.reloadKey)}`)),
-    h("div", { class: "card" }, h("h3", {}, "Reload-Taste für ReShade"),
-      h("p", {}, "Damit lädt ReShade Shader + Preset neu, ohne dass du ins Menü musst. Wird in ReShade.ini eingetragen (beim ersten Mal wird eine Sicherung ReShade.ini.presetstudio-backup angelegt)."),
+      h("p", {}, L("ReShade-Ordner: ", "ReShade folder: "), h("b", {}, st.folder || "—"), " ", st.folderOk ? h("span", { class: "ok" }, L("✓ ReShade.ini gefunden", "✓ ReShade.ini found")) : h("span", { class: "bad" }, L("✕ keine ReShade.ini", "✕ no ReShade.ini"))),
+      h("p", {}, L("Aktives Preset im Spiel: ", "Active preset in game: "), h("b", {}, st.active || "—")),
+      h("p", {}, L("Spiel: ", "Game: "), st.game ? h("span", { class: "wrn" }, L("läuft (ReShade.ini-Änderungen erst nach dem Schließen möglich)", "running (ReShade.ini changes only possible after closing it)")) : h("span", { class: "ok" }, "aus")),
+      h("p", {}, L(`Shader: ${st.fxCount} Dateien, ${S.techs.length} Effekte · Overlay-Taste: ${vk(st.overlayKey)} · Reload-Taste: ${vk(st.reloadKey)}`, `Shaders: ${st.fxCount} files, ${S.techs.length} effects · overlay key: ${vk(st.overlayKey)} · reload key: ${vk(st.reloadKey)}`))),
+    h("div", { class: "card" }, h("h3", {}, L("Reload-Taste für ReShade", "Reload key for ReShade")),
+      h("p", {}, L("Damit lädt ReShade Shader + Preset neu, ohne dass du ins Menü musst. Wird in ReShade.ini eingetragen (beim ersten Mal wird eine Sicherung ReShade.ini.presetstudio-backup angelegt).", "Makes ReShade reload shaders + preset without opening its menu. Written into ReShade.ini (a backup ReShade.ini.presetstudio-backup is made the first time).")),
       h("div", { class: "toolbar" }, rk, h("button", { class: "primary", disabled: st.game, onclick: async () => {
-        try { await api("/api/inisettings", { set: [["INPUT", "KeyReload", `${rk.value},0,0,0`]] }); toast("Reload-Taste gesetzt", true); renderSetup(); } catch (e) { toast(e.message); }
-      } }, "Übernehmen"))),
-    h("div", { class: "card" }, h("h3", {}, "Werkzeuge"),
+        try { await api("/api/inisettings", { set: [["INPUT", "KeyReload", `${rk.value},0,0,0`]] }); toast(L("Reload-Taste gesetzt", "Reload key set"), true); renderSetup(); } catch (e) { toast(e.message); }
+      } }, L("Übernehmen", "Apply")))),
+    h("div", { class: "card" }, h("h3", {}, L("Werkzeuge", "Tools")),
       h("div", { class: "toolbar" },
-        h("button", { onclick: async () => { toast("Shader werden neu eingelesen…"); const r = await api("/api/reindex", {}); S.fx = {}; await loadTechs(); toast(r.count + " Shader eingelesen", true); renderSetup(); } }, "Shader neu einlesen"),
-        h("button", { onclick: () => openFolder("presets") }, "Presets-Ordner"),
-        h("button", { onclick: () => openFolder("versions") }, "Versionen-Ordner"),
-        h("button", { onclick: () => openFolder("trash") }, "Papierkorb")),
-      h("p", {}, "VELOX Preset Studio ändert nur Textdateien (Presets, ReShade.ini). Es greift nicht in das Spiel ein.")));
+        h("button", { onclick: async () => { toast(L("Shader werden neu eingelesen…", "Re-reading shaders…")); const r = await api("/api/reindex", {}); S.fx = {}; await loadTechs(); toast(r.count + L(" Shader eingelesen", " shaders read"), true); renderSetup(); } }, L("Shader neu einlesen", "Re-read shaders")),
+        h("button", { onclick: () => openFolder("presets") }, L("Presets-Ordner", "Presets folder")),
+        h("button", { onclick: () => openFolder("versions") }, L("Versionen-Ordner", "Versions folder")),
+        h("button", { onclick: () => openFolder("trash") }, L("Papierkorb", "Trash"))),
+      h("p", {}, L("VELOX Preset Studio ändert nur Textdateien (Presets, ReShade.ini). Es greift nicht in das Spiel ein.", "VELOX Preset Studio only changes text files (presets, ReShade.ini). It never touches the game itself."))));
 }
 
 // ============================================================ external change watch
@@ -783,10 +796,10 @@ setInterval(async () => {
     if (!S.dirty || S.live) {
       const r = await api("/api/preset?rel=" + enc(S.cur.rel));
       S.cur.model = r.model; S.cur.mtime = r.mtime; S.dirty = false;
-      renderEditor(); toast("Preset wurde von außen (ReShade) geändert – neu geladen");
+      renderEditor(); toast(L("Preset wurde von außen (ReShade) geändert – neu geladen", "Preset was changed outside (ReShade) – reloaded"));
     } else {
       S.cur.mtime = mtime;
-      toast("Achtung: Preset-Datei wurde von außen geändert. Speichern überschreibt das.");
+      toast(L("Achtung: Preset-Datei wurde von außen geändert. Speichern überschreibt das.", "Warning: the preset file was changed outside. Saving overwrites that."));
     }
   } catch { }
 }, 2000);
@@ -803,48 +816,48 @@ $("#liveToggle").checked = S.live;
 $("#liveToggle").onchange = e => {
   S.live = e.target.checked; localStorage.setItem("live", S.live ? "1" : "0");
   if (S.live && S.dirty) save({ live: true });
-  updateTop(); toast(S.live ? "Live an: Änderungen landen sofort in der Preset-Datei" : "Live aus: mit Speichern übernehmen", S.live);
+  updateTop(); toast(S.live ? L("Live an: Änderungen landen sofort in der Preset-Datei", "Live on: changes go straight into the preset file") : L("Live aus: mit Speichern übernehmen", "Live off: apply with Save"), S.live);
 };
 $("#activateBtn").onclick = async () => {
-  try { await api("/api/activate", { rel: S.cur.rel }); await loadState(); renderPresetList(); updateTop(); toast("Beim nächsten Spielstart aktiv", true); }
+  try { await api("/api/activate", { rel: S.cur.rel }); await loadState(); renderPresetList(); updateTop(); toast(L("Beim nächsten Spielstart aktiv", "Active on next game start"), true); }
   catch (e) { toast(e.message); }
 };
 $("#dupBtn").onclick = () => { const p = S.presets.find(x => x.rel === S.cur.rel); newPresetModal({ name: p?.name || "Preset", model: S.cur.model }); };
 $("#renameBtn").onclick = () => {
   const p = S.presets.find(x => x.rel === S.cur.rel);
   const inp = h("input", { value: p?.name || "", style: "width:100%" });
-  modal("Umbenennen", inp, [["Abbrechen", () => true], ["Umbenennen", async () => {
-    try { const r = await api("/api/rename", { rel: S.cur.rel, name: inp.value }); S.cur.rel = r.rel; await loadPresets(); updateTop(); toast("Umbenannt", true); }
+  modal(L("Umbenennen", "Rename"), inp, [[L("Abbrechen", "Cancel"), () => true], [L("Umbenennen", "Rename"), async () => {
+    try { const r = await api("/api/rename", { rel: S.cur.rel, name: inp.value }); S.cur.rel = r.rel; await loadPresets(); updateTop(); toast(L("Umbenannt", "Renamed"), true); }
     catch (e) { toast(e.message); return false; }
   }, "primary"]]);
   inp.focus();
 };
 $("#trashBtn").onclick = () => {
-  modal("Preset löschen?", h("p", {}, "„" + S.cur.rel + "“ wird in den Papierkorb von Preset Studio verschoben (nicht endgültig gelöscht)."), [
-    ["Abbrechen", () => true],
-    ["In Papierkorb", async () => { await api("/api/trash", { rel: S.cur.rel }); S.cur = null; S.sel = null; await loadPresets(); renderEditor(); toast("Verschoben", true); }, "primary"]]);
+  modal(L("Preset löschen?", "Delete preset?"), h("p", {}, "„" + S.cur.rel + L("“ wird in den Papierkorb von Preset Studio verschoben (nicht endgültig gelöscht).", "\" is moved to the Preset Studio trash (not deleted for good).")), [
+    [L("Abbrechen", "Cancel"), () => true],
+    [L("In Papierkorb", "Move to trash"), async () => { await api("/api/trash", { rel: S.cur.rel }); S.cur = null; S.sel = null; await loadPresets(); renderEditor(); toast(L("Verschoben", "Moved"), true); }, "primary"]]);
 };
 document.addEventListener("keydown", e => {
   if (e.ctrlKey && e.key.toLowerCase() === "s") { e.preventDefault(); save({ label: S.live ? "manuell" : "" }); }
   else if (e.ctrlKey && e.key.toLowerCase() === "z" && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); undo(); }
   else if (e.ctrlKey && e.key.toLowerCase() === "y" && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); redo(); }
-  else if (e.key === "Escape") $("#modal").classList.add("hidden");
+  else if (e.key === "Escape" && !$("#modal").classList.contains("hidden")) $(".modal-box .mh button").click();
 });
 window.vps.onCloseRequest(() => {
-  if (S.dirty && !S.live && !confirm("Ungespeicherte Änderungen verwerfen und beenden?")) return;
+  if (S.dirty && !S.live && !confirm(L("Ungespeicherte Änderungen verwerfen und beenden?", "Discard unsaved changes and quit?"))) return;
   window.vps.confirmClose();
 });
 
 async function remoteCard() {
   const ri = await window.vps.remoteInfo();
   const cmd = `claude mcp add --scope user velox-preset -- node "${ri.mcp}"`;
-  return h("div", { class: "card" }, h("h3", {}, "Fernsteuerung für Claude (MCP)"),
-    h("p", {}, "Damit kann Claude Code die App bedienen: Presets öffnen, Regler setzen, Effekte schalten, speichern, Screenshots ansehen. Nur lokal (127.0.0.1) mit zufälligem Schlüssel."),
+  return h("div", { class: "card" }, h("h3", {}, L("Fernsteuerung für Claude (MCP)", "Remote control for Claude (MCP)")),
+    h("p", {}, L("Damit kann Claude Code die App bedienen: Presets öffnen, Regler setzen, Effekte schalten, speichern, Screenshots ansehen. Nur lokal (127.0.0.1) mit zufälligem Schlüssel.", "Lets Claude Code operate the app: open presets, set sliders, switch effects, save, look at screenshots. Local only (127.0.0.1) with a random key.")),
     h("div", { class: "toolbar" },
-      h("label", { class: "live" }, h("input", { type: "checkbox", checked: ri.on, onchange: async e => { await window.vps.setRemote(e.target.checked); renderSetup(); } }), h("span", { class: "sw" }), ri.on ? "Aktiv" : "Aus")),
-    h("p", {}, "Einmalig in einem Terminal ausführen (Node.js nötig):"),
+      h("label", { class: "live" }, h("input", { type: "checkbox", checked: ri.on, onchange: async e => { await window.vps.setRemote(e.target.checked); renderSetup(); } }), h("span", { class: "sw" }), ri.on ? L("Aktiv", "On") : L("Aus", "Off"))),
+    h("p", {}, L("Einmalig in einem Terminal ausführen (Node.js nötig):", "Run once in a terminal (Node.js required):")),
     h("div", { class: "toolbar" }, h("input", { value: cmd, readonly: true, style: "flex:1;font-family:Consolas,monospace;font-size:12px" }),
-      h("button", { onclick: () => { navigator.clipboard.writeText(cmd); toast("Kopiert", true); } }, "Kopieren")));
+      h("button", { onclick: () => { navigator.clipboard.writeText(cmd); toast(L("Kopiert", "Copied"), true); } }, L("Kopieren", "Copy"))));
 }
 
 // ============================================================ remote control (Claude via MCP)
@@ -912,8 +925,8 @@ window.vps.onRemote(async (command, args) => {
 
 // ============================================================ status bar + updates
 function updateStatus() {
-  $("#stFolder").textContent = S.state.folderOk ? S.state.folder : "Kein ReShade-Ordner gewählt";
-  $("#stFolder").title = "Klicken zum Ändern";
+  $("#stFolder").textContent = S.state.folderOk ? S.state.folder : L("Kein ReShade-Ordner gewählt", "No ReShade folder chosen");
+  $("#stFolder").title = L("Klicken zum Ändern", "Click to change");
 }
 $("#stFolder").onclick = () => showView("setup");
 const upd = { state: "idle", percent: 0, version: "" };
@@ -922,10 +935,10 @@ function drawUpd() {
   b.className = "upd " + upd.state;
   b.disabled = ["checking", "progress", "available"].includes(upd.state);
   b.textContent = {
-    idle: "Nach Updates suchen", dev: "Entwicklerversion", checking: "Suche Updates…", none: "✓ Aktuell – erneut prüfen",
-    available: `Update ${upd.version} gefunden…`, progress: `Update lädt ${Math.round(upd.percent)} %`,
-    ready: `⟳ Update ${upd.version} installieren & neu starten`, error: "Update-Prüfung fehlgeschlagen – erneut",
-  }[upd.state] || "Nach Updates suchen";
+    idle: L("Nach Updates suchen", "Check for updates"), dev: L("Entwicklerversion", "Developer build"), checking: L("Suche Updates…", "Checking for updates…"), none: L("✓ Aktuell – erneut prüfen", "✓ Up to date – check again"),
+    available: L(`Update ${upd.version} gefunden…`, `Update ${upd.version} found…`), progress: L(`Update lädt ${Math.round(upd.percent)} %`, `Downloading update ${Math.round(upd.percent)} %`),
+    ready: L(`⟳ Update ${upd.version} installieren & neu starten`, `⟳ Install update ${upd.version} & restart`), error: L("Update-Prüfung fehlgeschlagen – erneut", "Update check failed – retry"),
+  }[upd.state] || L("Nach Updates suchen", "Check for updates");
   if (upd.state === "error") b.title = upd.message || "";
 }
 window.vps.onUpdate(s => { Object.assign(upd, s); if (s.state === "available") upd.version = s.version; drawUpd(); });
@@ -941,7 +954,7 @@ $("#ghLink").onclick = () => window.vps.openUrl("https://github.com/VELOX-Design
 drawUpd();
 
 (async function init() {
-  await loadState().catch(e => toast("Server nicht erreichbar: " + e.message));
+  await loadState().catch(e => toast(L("Server nicht erreichbar: ", "Not reachable: ") + e.message));
   updateStatus();
   await loadPresets();
   loadTechs();
