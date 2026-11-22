@@ -12,6 +12,7 @@
   <nav id="views">
     <button data-view="editor" class="on">Editor</button>
     <button data-view="packs">Pakete</button>
+    <button data-view="gallery">Galerie</button>
     <button data-view="compare">Vergleichen</button>
     <button data-view="textures">Texturen</button>
     <button data-view="shots">Screenshots</button>
@@ -48,6 +49,7 @@
       </div>
       <div class="spacer"></div>
       <button id="lookBtn" class="accent2" title="Mit einem Klick wärmer, kälter, kontrastreicher …">Looks</button>
+      <button id="shareBtn" title="Preset als ZIP zum Weitergeben speichern">Teilen</button>
       <button id="mixBtn" title="Zwei Presets stufenlos mischen">Mischen</button>
       <button id="checkBtn" title="Prüft, ob alle Shader und Texturen installiert sind">Prüfen</button>
       <button id="cleanBtn" title="Doppelte und unnötige Einträge entfernen">Aufräumen</button>
@@ -72,6 +74,7 @@
   </section>
 
   <section id="view-packs" class="view hidden"></section>
+  <section id="view-gallery" class="view hidden"></section>
   <section id="view-compare" class="view hidden"></section>
   <section id="view-textures" class="view hidden"></section>
   <section id="view-shots" class="view hidden"></section>
@@ -93,5 +96,6 @@
 <div id="toasts"></div>
 <script src="app.js"></script>
 <script src="features.js"></script>
+<script src="features2.js"></script>
 </body>
 </html>

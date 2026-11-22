@@ -49,6 +49,12 @@ Updates: unten rechts zeigt der Button, ob es eine neue Version gibt – ein Kli
 | 🎛️ **Mischen** | Zwei Presets stufenlos mischen, z. B. 70 % A und 30 % B |
 | 🧹 **Aufräumen** | Doppelte, veraltete und unnötige Einträge entfernen |
 | ⚡ **Leistung** | Schwere Effekte (SSR, AO, GI …) werden markiert, Gesamt-Last pro Preset |
+| 🩺 **Shader-Fehler** | Liest `ReShade.log` und markiert Shader, die im Spiel nicht kompilieren oder Fehler melden |
+| 🖼️ **Galerie** | Jedes Preset mit Vorschaubild aus deinen ReShade-Screenshots – automatisch zugeordnet oder selbst gewählt |
+| 📌 **Meine Regler** | Lieblingsregler aus allen Effekten anpinnen und an einem Ort einstellen |
+| 📤 **Teilen** | Preset als ZIP mit Texturen und Liste der benötigten Shader – Import mit Check auf der anderen Seite |
+| ⬇️ **Shader-Pakete** | Pakete aus der offiziellen ReShade-Liste installieren und aktualisieren – fehlende Pakete direkt aus dem Import-Check |
+| 💾 **Backup** | ReShade-Ordner sichern (nur Presets oder komplett) und wiederherstellen |
 | 🌍 **Deutsch / English** | Sprache unten rechts umschalten |
 | 🤖 **Claude-Fernsteuerung** | Eingebauter MCP-Server: Claude Code kann Presets öffnen, Regler setzen, Effekte schalten und Screenshots ansehen |
 

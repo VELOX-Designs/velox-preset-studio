@@ -259,3 +259,29 @@ button.accent2:hover { background: rgba(255,154,69,.12); }
 .other-grp { display: flex; justify-content: space-between; padding: 6px 6px; margin: 2px 0; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; user-select: none; }
 .other-grp:hover { background: var(--bg3); }
 .fx.off:hover { opacity: .85; }
+
+/* ---- 1.2 features ---- */
+.badge.logbad { background: rgba(255,77,106,.16); color: var(--danger); }
+.logbox { margin: 10px 16px 0; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg2); }
+.logbox.bad { border-color: rgba(255,77,106,.5); } .logbox.wrn { border-color: rgba(255,176,32,.45); }
+.logbox .small { margin-top: 4px; font-family: Consolas, monospace; overflow-wrap: anywhere; }
+.row .lb { position: relative; padding-right: 24px; }
+.pin { position: absolute; right: 0; top: 50%; transform: translateY(-50%); background: none; border: none; padding: 2px 4px; font-size: 12px; opacity: 0; filter: grayscale(1); }
+.row:hover .pin { opacity: .6; } .pin:hover { opacity: 1 !important; filter: none; } .pin.on { opacity: 1; filter: none; }
+.pins-item { border-style: dashed; border-color: rgba(255,194,71,.35); }
+.pins-item.sel { border-style: solid; border-color: var(--gold); background: #1f1c14; }
+.cat.pin-off { opacity: .6; }
+.gallery { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.gallery .tile .im { height: 140px; background-size: cover; cursor: pointer; }
+.gallery .im.noimg { background: repeating-linear-gradient(45deg, #15171c, #15171c 10px, #191c22 10px, #191c22 20px); font-size: 12px; }
+.g-cap { display: flex; justify-content: space-between; align-items: center; gap: 6px; white-space: normal; }
+.g-cap b { font-size: 12.5px; }
+.g-cap .act { color: var(--ok); }
+.pthumb { display: inline-block; width: 30px; height: 18px; border-radius: 3px; background: #000 center/cover; vertical-align: middle; margin-right: 7px; }
+.pkglist { max-height: 480px; overflow-y: auto; margin-top: 8px; }
+.pkg { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-top: 1px solid #1f232b; }
+.pkg .nm { flex: 1; min-width: 0; }
+.pk-st { font-size: 11px; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.pk-st.none { background: var(--bg4); color: var(--muted); } .pk-st.full { background: rgba(61,220,132,.13); color: var(--ok); } .pk-st.part { background: rgba(255,176,32,.13); color: var(--warn); }
+.mono { font-family: Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.rep-row.bk { display: flex; gap: 10px; align-items: center; } .rep-row.bk span:first-child { flex: 1; }

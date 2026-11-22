@@ -117,7 +117,7 @@ function renderPacks() {
         const k = `${t.name}@${t.file}`;
         body.append(h("div", { class: "pk-row", "data-tipfx": k },
           h("div", { class: "nm" }, h("b", {}, t.label), h("small", {}, t.file)),
-          perfBadge(k), isFav(k) ? h("span", { class: "badge" }, "★") : null,
+          perfBadge(k), logBadge(k), isFav(k) ? h("span", { class: "badge" }, "★") : null,
           S.cur ? h("label", { class: "tog", "data-tip": L("Im offenen Preset an/aus", "On/off in the open preset") },
             h("input", { type: "checkbox", checked: en.has(k), onchange: e => { toggleFx(k, e.target.checked); renderPacks(); } }), h("span", { class: "sw" })) : null,
           S.cur ? h("button", { class: "small", onclick: () => { if (!en.has(k)) toggleFx(k, true); S.sel = k; showView("editor"); } }, L("Einstellen", "Adjust")) : null));
@@ -601,6 +601,7 @@ const STATIC_EN = {
   "Mit einem Klick wärmer, kälter, kontrastreicher …": "Warmer, cooler, more contrast … with one click", "Zwei Presets stufenlos mischen": "Blend two presets smoothly",
   "Prüft, ob alle Shader und Texturen installiert sind": "Checks whether all shaders and textures are installed", "Doppelte und unnötige Einträge entfernen": "Remove duplicate and unneeded entries",
   "Projekt auf GitHub": "Project on GitHub",
+  "Galerie": "Gallery", "Teilen": "Share", "Preset als ZIP zum Weitergeben speichern": "Save preset as ZIP to share",
 };
 function translateStatic() {
   if (LANG !== "en") return;

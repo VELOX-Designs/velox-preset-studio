@@ -257,6 +257,7 @@ function fxItem(key, on, idx) {
     isFav(key) ? h("span", { class: "badge", title: L("Favorit", "Favorite") }, "★") : null,
     missing ? h("span", { class: "badge miss", title: L("Shader-Datei nicht gefunden", "Shader file not found") }, "fehlt") : null,
     perfBadge(key),
+    logBadge(key),
     nameOf(key) !== "?" ? h("label", { class: "tog", onclick: e => e.stopPropagation() },
       h("input", { type: "checkbox", checked: on, onchange: e => toggleFx(key, e.target.checked) }), h("span", { class: "sw" })) : null);
   if (on) {
@@ -399,6 +400,7 @@ function paramRow(file, u) {
   const setV = vals => { beforeChange(); M.set(file, u.name, fmtVals(u, vals)); lb.classList.toggle("mod", !sameVals(vals, u.default)); rs.classList.toggle("vis", !sameVals(vals, u.default)); changed(); };
   const lb = h("div", { class: "lb" + (mod ? " mod" : "") }, u.label.trim() || u.name, u.label.trim() !== u.name ? h("small", {}, u.name) : null);
   lb._tip = { file, u };
+  lb.append(pinBtn(file, u));
   const rs = h("button", { class: "rs" + (mod ? " vis" : ""), title: "Standard: " + u.default.join(", "), onclick: () => { beforeChange(); M.set(file, u.name, fmtVals(u, u.default)); changed(); renderParams(); } }, "↺");
   let ctl;
   const isInt = u.base === "int" || u.base === "uint";
@@ -567,7 +569,7 @@ function showView(v) {
   $$("#views button").forEach(b => b.classList.toggle("on", b.dataset.view === v));
   $$(".view").forEach(el => el.classList.add("hidden"));
   $("#view-" + v).classList.remove("hidden");
-  ({ editor: renderEditor, packs: renderPacks, compare: renderCompare, textures: renderTextures, shots: renderShots, versions: renderVersions, setup: renderSetup })[v]?.();
+  ({ editor: renderEditor, packs: renderPacks, gallery: renderGallery, compare: renderCompare, textures: renderTextures, shots: renderShots, versions: renderVersions, setup: renderSetup })[v]?.();
 }
 function needPreset(el) {
   if (S.cur) return false;

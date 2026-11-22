@@ -143,8 +143,12 @@ ipcMain.handle('app:pickFolder', async () => {
   return r.canceled ? null : r.filePaths[0];
 });
 ipcMain.handle('app:pickPreset', async () => {
-  const r = await dialog.showOpenDialog(win, { title: 'Preset importieren', properties: ['openFile', 'multiSelections'], filters: [{ name: 'ReShade-Preset', extensions: ['ini', 'txt'] }] });
+  const r = await dialog.showOpenDialog(win, { title: 'Preset importieren', properties: ['openFile', 'multiSelections'], filters: [{ name: 'ReShade-Preset / VELOX-ZIP', extensions: ['ini', 'txt', 'zip'] }] });
   return r.canceled ? [] : r.filePaths;
+});
+ipcMain.handle('app:saveZip', async (_e, name) => {
+  const r = await dialog.showSaveDialog(win, { title: 'Preset teilen', defaultPath: path.join(app.getPath('desktop'), name), filters: [{ name: 'ZIP', extensions: ['zip'] }] });
+  return r.canceled ? null : r.filePath;
 });
 ipcMain.handle('app:openPath', (_e, p) => (p ? shell.openPath(p) : ''));
 ipcMain.handle('app:openUrl', (_e, u) => { if (/^https:\/\//.test(u)) shell.openExternal(u); });

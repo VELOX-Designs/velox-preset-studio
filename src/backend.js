@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFile } = require('child_process');
+const zip = require('./zip');
 
 let ctx = {
   settingsFile: '',   // userData/settings.json
@@ -431,13 +432,237 @@ async function checkModel(model) {
   const tex = textureIndex(); const missingTex = new Set();
   const texts = [g('PreprocessorDefinitions'), ...model.sections.map((s) => (s.items.find((i) => i[0] === 'PreprocessorDefinitions') || [])[1] || '')];
   for (const t of texts) { let m; IMG_RE.lastIndex = 0; while ((m = IMG_RE.exec(t))) { const v = m[1].replace(/\\/g, '/').toLowerCase(); if (!tex.rel.has(v) && !tex.names.has(path.posix.basename(v))) missingTex.add(m[1]); } }
+  if (missingFiles.size) { try { await packages(); } catch { } }
   return {
     enabled: enabled.length,
-    missingShaders: [...missingFiles].map(([file, techs]) => ({ file, techniques: techs, hint: installedPrefix.get(prefix(file)) || '' })),
+    missingShaders: [...missingFiles].map(([file, techs]) => ({ file, techniques: techs, hint: installedPrefix.get(prefix(file)) || '', official: packForFile(file) })),
     missingTechniques: missingTech,
     missingTextures: [...missingTex],
     ok: !missingFiles.size && !missingTech.length && !missingTex.size,
   };
+}
+
+// ------------------------------------------------------------ ReShade.log (shader compile errors)
+function shaderLog() {
+  const p = path.join(base(), 'ReShade.log');
+  if (!base() || !fs.existsSync(p)) return { found: false, files: {} };
+  let text = readText(p);
+  const lastInit = text.lastIndexOf("Initializing crosire's ReShade");
+  if (lastInit > 0) text = text.slice(text.lastIndexOf('\n', lastInit) + 1);
+  const files = {}; let cur = null;
+  const get = (fn) => (files[fn] ||= { status: 'ok', errors: [], warnings: [] });
+  for (const line of text.split(/\r?\n/)) {
+    let m = /\|\s*(INFO|WARN|ERROR)\s*\|\s*(Successfully compiled|Failed to compile)\s+'([^']+)'/.exec(line);
+    if (m) {
+      cur = path.basename(m[3]);
+      const f = get(cur); f.errors = []; f.warnings = []; // newest compile wins (reloads)
+      f.status = m[2].startsWith('Failed') ? 'fail' : m[1] === 'WARN' ? 'warn' : 'ok';
+      continue;
+    }
+    m = /^(.*?\.fxh?)\((\d+), ?\d+\)\s*:\s*(error|warning)\s+(\w+):\s*(.*)$/i.exec(line.trim());
+    if (m && cur) {
+      const f = get(cur);
+      const entry = { where: path.basename(m[1]) + ':' + m[2], code: m[4], msg: m[5].slice(0, 300) };
+      (m[3].toLowerCase() === 'error' ? f.errors : f.warnings).push(entry);
+      if (m[3].toLowerCase() === 'error' && f.status !== 'fail') f.status = 'error';
+      continue;
+    }
+    m = /\|\s*ERROR\s*\|\s*(.*)$/.exec(line);
+    if (m) { const fx = /'([^']+\.fx)'/.exec(m[1]); if (fx) { const f = get(path.basename(fx[1])); f.status = 'fail'; f.errors.push({ where: '', code: '', msg: m[1].slice(0, 300) }); } }
+  }
+  for (const [k, f] of Object.entries(files)) if (f.status === 'ok' && !f.warnings.length) delete files[k];
+  const st = fs.statSync(p);
+  return { found: true, time: st.mtimeMs, files };
+}
+
+// ------------------------------------------------------------ preview images (gallery)
+function normPreset(model) {
+  const g = (k) => ((model.global.find((i) => i[0] === k) || [])[1] || '');
+  const secs = model.sections.map((s) => s.name.toLowerCase() + ':' + s.items.map((i) => i.join('=')).sort().join(';')).sort();
+  return g('Techniques') + '|' + secs.join('|');
+}
+function gallery() {
+  const presets = listPresets();
+  const shots = listShots().filter((s) => s.preset);
+  const norm = new Map(), tech = new Map();
+  for (const p of presets) {
+    try { const m = parsePreset(readText(safePath(p.rel))); norm.set(normPreset(m), p.rel); tech.set(p.rel, ((m.global.find((i) => i[0] === 'Techniques') || [])[1] || '')); } catch { }
+  }
+  const auto = {};
+  for (const s of shots) { // newest first
+    let m; try { m = parsePreset(readText(path.join(shotsDir(), s.name).replace(/\.[^.]+$/, '.ini'))); } catch { continue; }
+    const exact = norm.get(normPreset(m));
+    if (exact && !auto[exact]) { auto[exact] = s.name; continue; }
+    const t = (m.global.find((i) => i[0] === 'Techniques') || [])[1] || '';
+    for (const [rel, tt] of tech) if (!auto[rel] && tt && tt === t) { auto[rel] = s.name; break; }
+  }
+  const manual = settings.previews || {};
+  const shotNames = new Set(listShots().map((s) => s.name));
+  return presets.map((p) => {
+    const man = manual[p.rel] && shotNames.has(manual[p.rel]) ? manual[p.rel] : null;
+    return { ...p, shot: man || auto[p.rel] || null, manual: !!man };
+  });
+}
+
+// ------------------------------------------------------------ official ReShade package list
+const PKG_URL = 'https://raw.githubusercontent.com/crosire/reshade-shaders/list/EffectPackages.ini';
+let pkgCache = null;
+async function packages(refresh) {
+  const cacheFile = path.join(path.dirname(ctx.settingsFile), 'EffectPackages.ini');
+  if (!pkgCache || refresh) {
+    let text = null;
+    try { const r = await fetch(PKG_URL); if (r.ok) { text = await r.text(); fs.writeFileSync(cacheFile, text); } } catch { }
+    if (!text && fs.existsSync(cacheFile)) text = fs.readFileSync(cacheFile, 'utf8');
+    if (!text) throw new Error('Paketliste konnte nicht geladen werden (keine Internetverbindung?)');
+    const list = []; let cur = null;
+    for (const line of text.split(/\r?\n/)) {
+      const s = line.trim();
+      if (/^\[.*\]$/.test(s)) { cur = { id: s.slice(1, -1) }; list.push(cur); continue; }
+      const i = s.indexOf('='); if (i < 0 || !cur) continue;
+      cur[s.slice(0, i)] = s.slice(i + 1);
+    }
+    pkgCache = list.filter((p) => p.DownloadUrl && /^https:\/\//.test(p.DownloadUrl));
+  }
+  if (!FX.ready) await FX.building;
+  const have = new Set(Object.keys(FX.files).map((f) => f.toLowerCase()));
+  return pkgCache.map((p) => {
+    const files = (p.EffectFiles || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const got = files.filter((f) => have.has(f.toLowerCase())).length;
+    return { id: p.id, name: p.PackageName, desc: p.PackageDescription || '', url: p.DownloadUrl, repo: p.RepositoryUrl || '', files, installed: got, total: files.length, required: p.Required === '1' };
+  });
+}
+function packForFile(fn) {
+  if (!pkgCache) return null;
+  const f = fn.toLowerCase();
+  const p = pkgCache.find((x) => (x.EffectFiles || '').toLowerCase().split(',').map((s) => s.trim()).includes(f));
+  return p ? { id: p.id, name: p.PackageName, repo: p.RepositoryUrl || '' } : null;
+}
+async function installPack(id) {
+  if (!pkgCache) await packages();
+  const p = pkgCache.find((x) => x.id === id);
+  if (!p) throw new Error('Paket nicht gefunden');
+  const shDir = resolveRel(p.InstallPath || '.\\reshade-shaders\\Shaders');
+  const txDir = resolveRel(p.TextureInstallPath || '.\\reshade-shaders\\Textures');
+  if (!inside(shDir, base()) || !inside(txDir, base())) throw new Error('Ungültiger Installationspfad');
+  const r = await fetch(p.DownloadUrl);
+  if (!r.ok) throw new Error('Download fehlgeschlagen: HTTP ' + r.status);
+  const tmp = path.join(os.tmpdir(), `vps-pack-${Date.now()}.zip`);
+  fs.writeFileSync(tmp, Buffer.from(await r.arrayBuffer()));
+  const deny = new Set((p.DenyEffectFiles || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean));
+  let shaders = 0, textures = 0;
+  try {
+    for (const e of zip.readZip(tmp)) {
+      if (e.dir) continue;
+      const parts = e.name.split('/');
+      const si = parts.findIndex((x) => x.toLowerCase() === 'shaders');
+      const ti = parts.findIndex((x) => x.toLowerCase() === 'textures');
+      let dst = null;
+      if (si >= 0 && (ti < 0 || si < ti)) {
+        if (deny.has(parts[parts.length - 1].toLowerCase())) continue;
+        dst = zip.safeJoin(shDir, parts.slice(si + 1).join('/')); if (dst) shaders++;
+      } else if (ti >= 0) { dst = zip.safeJoin(txDir, parts.slice(ti + 1).join('/')); if (dst) textures++; }
+      if (!dst) continue;
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.writeFileSync(dst, e.read());
+    }
+  } finally { try { fs.unlinkSync(tmp); } catch { } }
+  effectCache.clear(); await buildIndex();
+  return { ok: true, name: p.PackageName, shaders, textures };
+}
+
+// ------------------------------------------------------------ share as zip
+function texturesOfModel(model) {
+  const names = new Set();
+  const texts = [((model.global.find((i) => i[0] === 'PreprocessorDefinitions') || [])[1] || ''), ...model.sections.map((s) => (s.items.find((i) => i[0] === 'PreprocessorDefinitions') || [])[1] || '')];
+  for (const t of texts) { let m; IMG_RE.lastIndex = 0; while ((m = IMG_RE.exec(t))) names.add(m[1].replace(/\\/g, '/')); }
+  const found = [];
+  for (const n of names) {
+    let hit = null;
+    for (const r of textureRoots()) { const c = path.join(r, n); if (fs.existsSync(c)) { hit = { rel: n, path: c }; break; } }
+    if (!hit) for (const r of textureRoots()) walk(r, (p, fn) => { if (!hit && fn.toLowerCase() === path.posix.basename(n).toLowerCase()) hit = { rel: path.relative(r, p).replace(/\\/g, '/'), path: p }; });
+    if (hit) found.push(hit);
+  }
+  return found;
+}
+async function exportZip(rel, out) {
+  const p = safePath(rel);
+  const model = parsePreset(readText(p));
+  const name = path.basename(p);
+  const enabled = ((model.global.find((i) => i[0] === 'Techniques') || [])[1] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  try { await packages(); } catch { }
+  const shaders = [...new Set(enabled.map((k) => k.split('@')[1]).filter(Boolean))].map((f) => {
+    const own = FX.files[f] ? path.relative(shaderRoots()[0] || '', path.dirname(FX.files[f])).split(/[\\/]/)[0] : '';
+    const pk = packForFile(f);
+    return { file: f, folder: own || '', officialPack: pk ? pk.name : '', url: pk ? pk.repo : '' };
+  });
+  const tex = texturesOfModel(model);
+  const manifest = { app: 'VELOX Preset Studio', format: 1, preset: name, created: new Date().toISOString(), effects: enabled, shaders, textures: tex.map((t) => t.rel) };
+  const lines = [`${name}`, '', 'Benötigte Shader / Required shaders:', ...shaders.map((s) => `- ${s.file}${s.folder ? '  (' + s.folder + ')' : ''}${s.officialPack ? '  -> ' + s.officialPack + ' ' + s.url : ''}`), '',
+    'Import: VELOX Preset Studio -> Import -> diese ZIP wählen / choose this ZIP.', 'Ohne App: die .ini in den ReShade-Ordner kopieren, Texturen nach reshade-shaders\\Textures.'];
+  const entries = [{ name, path: p }, { name: 'manifest.json', data: JSON.stringify(manifest, null, 2) }, { name: 'LIESMICH - README.txt', data: lines.join('\r\n') }, ...tex.map((t) => ({ name: 'Textures/' + t.rel, path: t.path }))];
+  zip.writeZip(out, entries);
+  return { ok: true, file: out, textures: tex.length, shaders: shaders.length };
+}
+async function readPresetZip(file) {
+  const entries = zip.readZip(file);
+  const ini = entries.find((e) => !e.dir && /\.ini$/i.test(e.name) && !e.name.includes('/') && /^\s*Techniques\s*=/m.test(e.read().toString('utf8')));
+  if (!ini) throw new Error('In der ZIP ist kein ReShade-Preset');
+  const model = parsePreset(ini.read().toString('utf8').replace(/^﻿/, ''));
+  const tex = entries.filter((e) => !e.dir && /^textures\//i.test(e.name)).map((e) => e.name.slice(9));
+  const check = await checkModel(model);
+  const texDir = textureRoots()[0];
+  const have = new Set(tex.filter((t) => texDir && fs.existsSync(path.join(texDir, t))));
+  check.missingTextures = check.missingTextures.filter((t) => !tex.some((x) => x.toLowerCase() === t.replace(/\\/g, '/').toLowerCase() || path.posix.basename(x).toLowerCase() === path.posix.basename(t.replace(/\\/g, '/')).toLowerCase()));
+  for (const m of check.missingShaders) { const pk = packForFile(m.file); if (pk) m.official = pk; }
+  return { name: path.basename(ini.name).replace(/\.ini$/i, ''), model, check, textures: tex, texturesNew: tex.filter((t) => !have.has(t)) };
+}
+function importZipTextures(file) {
+  const texDir = textureRoots()[0] || path.join(base(), 'reshade-shaders', 'Textures');
+  let n = 0;
+  for (const e of zip.readZip(file)) {
+    if (e.dir || !/^textures\//i.test(e.name)) continue;
+    const dst = zip.safeJoin(texDir, e.name.slice(9));
+    if (!dst || fs.existsSync(dst)) continue; // never overwrite existing textures
+    fs.mkdirSync(path.dirname(dst), { recursive: true }); fs.writeFileSync(dst, e.read()); n++;
+  }
+  return n;
+}
+
+// ------------------------------------------------------------ backups of the ReShade folder
+const backupsDir = () => path.join(ctx.dataDir, 'Backups');
+async function makeBackup(mode) {
+  fs.mkdirSync(backupsDir(), { recursive: true });
+  const entries = [];
+  if (fs.existsSync(iniPath())) entries.push({ name: 'ReShade.ini', path: iniPath() });
+  for (const p of listPresets()) entries.push({ name: p.rel.replace(/^\.\\/, ''), path: safePath(p.rel) });
+  if (mode === 'full') {
+    const sr = path.join(base(), 'reshade-shaders');
+    if (fs.existsSync(sr)) walk(sr, (p) => entries.push({ name: path.relative(base(), p), path: p }));
+    for (const r of [...shaderRoots(), ...textureRoots()]) if (!inside(r, sr) && inside(r, base())) walk(r, (p) => entries.push({ name: path.relative(base(), p), path: p }));
+  }
+  const out = path.join(backupsDir(), `Backup ${stamp()} ${mode === 'full' ? 'Komplett' : 'Presets'}.zip`);
+  zip.writeZip(out, entries);
+  return { ok: true, name: path.basename(out), files: entries.length, size: fs.statSync(out).size };
+}
+function listBackups() {
+  if (!fs.existsSync(backupsDir())) return [];
+  return fs.readdirSync(backupsDir()).filter((f) => /\.zip$/i.test(f)).map((f) => { const st = fs.statSync(path.join(backupsDir(), f)); return { name: f, size: st.size, mtime: st.mtimeMs / 1000 }; }).sort((a, b) => b.mtime - a.mtime);
+}
+async function restoreBackup(name) {
+  const f = path.join(backupsDir(), path.basename(name));
+  if (!fs.existsSync(f)) throw new Error('Backup nicht gefunden');
+  const running = await gameRunning();
+  const before = await makeBackup('presets'); // safety copy of the current state
+  let n = 0, skipped = 0;
+  for (const e of zip.readZip(f)) {
+    if (e.dir) continue;
+    if (running && /^reshade\.ini$/i.test(e.name)) { skipped++; continue; }
+    const dst = zip.safeJoin(base(), e.name);
+    if (!dst) continue;
+    fs.mkdirSync(path.dirname(dst), { recursive: true }); fs.writeFileSync(dst, e.read()); n++;
+  }
+  effectCache.clear(); await buildIndex();
+  return { ok: true, files: n, skippedIni: skipped > 0, safety: before.name };
 }
 
 // ------------------------------------------------------------ API dispatch
@@ -546,9 +771,31 @@ async function api(route, q = {}, b = null) {
       if (!model.global.some((i) => i[0] === 'Techniques')) throw new Error('Das ist kein ReShade-Preset (keine Techniques-Zeile)');
       return { name: path.basename(f).replace(/\.(ini|txt)$/i, ''), model, check: await checkModel(model) };
     }
+    case 'shaderlog': return shaderLog();
+    case 'gallery': return gallery();
+    case 'setpreview': { settings.previews = settings.previews || {}; if (b.shot) settings.previews[b.rel] = b.shot; else delete settings.previews[b.rel]; saveSettings(); return { ok: true }; }
+    case 'pins': return settings.pins || [];
+    case 'setpins': settings.pins = (b.pins || []).slice(0, 300); saveSettings(); return { ok: true, pins: settings.pins };
+    case 'packages': return packages(!!(b && b.refresh) || q.refresh === '1');
+    case 'installpack': return installPack(b.id);
+    case 'exportzip': return exportZip(b.rel, b.out);
+    case 'readzip': return readPresetZip(b.file);
+    case 'importzip': {
+      const r = await readPresetZip(b.file);
+      const tex = importZipTextures(b.file);
+      const name = cleanName(b.name || r.name); const folder = cleanName(b.folder) || 'Importiert';
+      const d = path.join(base(), 'Presets', folder); fs.mkdirSync(d, { recursive: true });
+      const p = path.join(d, name + '.ini');
+      if (fs.existsSync(p)) throw new Error('Preset gibt es schon');
+      fs.writeFileSync(p, writePreset(r.model), 'utf8');
+      return { ok: true, rel: toRel(p), textures: tex };
+    }
+    case 'backup': return makeBackup(b.mode === 'full' ? 'full' : 'presets');
+    case 'backups': return listBackups();
+    case 'restore': return restoreBackup(b.name);
     case 'reindex': effectCache.clear(); await buildIndex(); return { ok: true, count: FX.count };
     case 'folderpath': {
-      return { path: { presets: path.join(base(), 'Presets'), shots: shotsDir(), versions: versionsDir(), trash: trashDir(), reshade: base() }[b.what] || '' };
+      return { path: { presets: path.join(base(), 'Presets'), shots: shotsDir(), versions: versionsDir(), trash: trashDir(), reshade: base(), backups: backupsDir() }[b.what] || '' };
     }
   }
   throw new Error('Unbekannte Aktion: ' + route);
