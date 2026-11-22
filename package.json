@@ -1,0 +1,74 @@
+{
+  "name": "velox-preset-studio",
+  "productName": "VELOX Preset Studio",
+  "version": "1.0.0",
+  "description": "VELOX Preset Studio - ReShade preset editor: build your own presets with sliders, compare, versions and live testing",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "license": "MIT",
+  "author": "VELOX",
+  "homepage": "https://github.com/VELOX-Designs/velox-preset-studio",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VELOX-Designs/velox-preset-studio.git"
+  },
+  "devDependencies": {
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "build": {
+    "appId": "com.velox.presetstudio",
+    "productName": "VELOX Preset Studio",
+    "copyright": "Copyright © 2026 VELOX",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "tools/**/*",
+      "package.json",
+      "LICENSE"
+    ],
+    "asarUnpack": [
+      "tools/**"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico",
+      "artifactName": "VELOX-Preset-Studio-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "VELOX Preset Studio",
+      "uninstallDisplayName": "VELOX Preset Studio",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "language": "1031",
+      "multiLanguageInstaller": false,
+      "license": "LICENSE",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp",
+      "installerHeader": "build/installerHeader.bmp",
+      "menuCategory": false,
+      "displayLanguageSelector": false
+    },
+    "publish": [
+      { "provider": "github", "owner": "VELOX-Designs", "repo": "velox-preset-studio", "releaseType": "release" }
+    ]
+  }
+}

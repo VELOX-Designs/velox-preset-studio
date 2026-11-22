@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' vps: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>VELOX Preset Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="top">
+  <div class="brand"><img src="assets/logo.svg" class="logo" alt=""><span>VELOX</span><small>PRESET STUDIO</small></div>
+  <nav id="views">
+    <button data-view="editor" class="on">Editor</button>
+    <button data-view="compare">Vergleichen</button>
+    <button data-view="textures">Texturen</button>
+    <button data-view="shots">Screenshots</button>
+    <button data-view="versions">Versionen</button>
+    <button data-view="setup">Einrichtung</button>
+  </nav>
+  <div class="spacer drag"></div>
+  <span id="gamePill" class="pill">Spiel: ?</span>
+  <label class="live" title="Jede Änderung wird sofort in die Preset-Datei geschrieben">
+    <input type="checkbox" id="liveToggle"><span class="sw"></span> Live
+  </label>
+  <button id="undoBtn" class="icon" title="Rückgängig (Strg+Z)">↶</button>
+  <button id="redoBtn" class="icon" title="Wiederholen (Strg+Y)">↷</button>
+  <button id="saveBtn" class="primary" title="Speichern (Strg+S)">Speichern</button>
+</header>
+
+<div id="banner" class="hidden"></div>
+
+<main>
+  <aside id="sidebar">
+    <div class="side-head">
+      <input id="presetSearch" placeholder="Preset suchen…">
+      <button id="newPresetBtn" class="primary small" title="Neues Preset">+ Neu</button>
+    </div>
+    <div id="presetList"></div>
+  </aside>
+
+  <section id="view-editor" class="view">
+    <div id="presetBar">
+      <div>
+        <div id="presetName" class="title">Kein Preset gewählt</div>
+        <div id="presetMeta" class="muted"></div>
+      </div>
+      <div class="spacer"></div>
+      <button id="activateBtn">Im Spiel aktiv setzen</button>
+      <button id="dupBtn">Duplizieren</button>
+      <button id="renameBtn">Umbenennen</button>
+      <button id="trashBtn" class="danger">Löschen</button>
+    </div>
+    <div class="editor-split">
+      <div id="stack">
+        <div class="stack-head">
+          <span>Effekte im Preset</span>
+          <button id="addFxBtn" class="primary small">+ Effekt</button>
+        </div>
+        <div id="stackList"></div>
+        <div class="muted hint">Ziehen = Reihenfolge · Schalter = an/aus · oben wird zuerst gerendert</div>
+      </div>
+      <div id="params">
+        <div class="empty">Links ein Preset und dann einen Effekt wählen.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-compare" class="view hidden"></section>
+  <section id="view-textures" class="view hidden"></section>
+  <section id="view-shots" class="view hidden"></section>
+  <section id="view-versions" class="view hidden"></section>
+  <section id="view-setup" class="view hidden"></section>
+</main>
+
+<footer id="status">
+  <span id="stFolder" class="st-folder"></span>
+  <div class="spacer"></div>
+  <span class="made">made by VELOX</span>
+  <button id="ghLink" class="st-link" title="Projekt auf GitHub">GitHub</button>
+  <span id="stVersion" class="muted"></span>
+  <button id="updBtn" class="upd">Nach Updates suchen</button>
+</footer>
+
+<div id="modal" class="hidden"><div class="modal-box"></div></div>
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>
