@@ -285,3 +285,58 @@ button.accent2:hover { background: rgba(255,154,69,.12); }
 .pk-st.none { background: var(--bg4); color: var(--muted); } .pk-st.full { background: rgba(61,220,132,.13); color: var(--ok); } .pk-st.part { background: rgba(255,176,32,.13); color: var(--warn); }
 .mono { font-family: Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
 .rep-row.bk { display: flex; gap: 10px; align-items: center; } .rep-row.bk span:first-child { flex: 1; }
+
+/* ---- 1.3 start screen + Mod-Studio ---- */
+#home, #ms { display: none; }
+body[data-mode="home"] #top, body[data-mode="home"] #banner, body[data-mode="home"] main,
+body[data-mode="mods"] #top, body[data-mode="mods"] #banner, body[data-mode="mods"] main { display: none !important; }
+body[data-mode="home"] #home { display: flex; }
+body[data-mode="mods"] #ms { display: flex; }
+#home { height: calc(100% - 30px); flex-direction: column; align-items: center; justify-content: center; gap: 26px; -webkit-app-region: drag; padding: 40px;
+  background: radial-gradient(60% 70% at 80% 20%, rgba(255,154,69,.10), transparent 60%), radial-gradient(60% 70% at 15% 85%, rgba(30,200,212,.10), transparent 60%), var(--bg); }
+#home * { -webkit-app-region: no-drag; }
+.home-brand { display: flex; align-items: center; gap: 16px; }
+.home-brand img { width: 64px; height: 64px; }
+.hb-name { font-size: 40px; font-weight: 800; letter-spacing: 4px; background: linear-gradient(90deg, #fff, #9fdcef); -webkit-background-clip: text; color: transparent; line-height: 1; }
+.hb-sub { font-size: 12px; letter-spacing: 6px; color: #ffaa5a; font-weight: 700; margin-top: 4px; }
+.home-q { font-size: 18px; color: var(--muted); }
+.home-tiles { display: flex; gap: 22px; flex-wrap: wrap; justify-content: center; }
+.home-tile { width: 340px; padding: 26px 26px 18px; border-radius: 16px; background: var(--bg2); border: 1px solid var(--line); cursor: pointer; transition: .15s; }
+.home-tile:hover { border-color: var(--accent); transform: translateY(-3px); box-shadow: 0 14px 40px rgba(0,0,0,.45); }
+.ht-icon { font-size: 34px; }
+.ht-title { font-size: 21px; font-weight: 800; margin-top: 10px; }
+.ht-sub { color: var(--muted); margin: 4px 0 12px; }
+.home-tile ul { margin: 0; padding-left: 18px; color: #b8c0cf; }
+.home-tile li { margin: 3px 0; }
+.home-foot { font-size: 12px; }
+#ms { height: calc(100% - 30px); flex-direction: column; }
+.ms-top { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 150px 0 14px; background: var(--bg2); border-bottom: 1px solid var(--line); -webkit-app-region: drag; flex: none; }
+.ms-top > *:not(.drag) { -webkit-app-region: no-drag; }
+.ms-top .brand small { color: #ffaa5a; }
+.ms-tabs { display: flex; gap: 2px; margin-left: 10px; }
+.ms-tabs button { background: none; border: none; color: var(--muted); padding: 8px 12px; }
+.ms-tabs button.on { color: var(--text); box-shadow: inset 0 -2px 0 #ffaa5a; border-radius: 0; }
+.ms-progress { position: relative; height: 22px; background: var(--bg3); border-bottom: 1px solid var(--line); flex: none; }
+.ms-progress .pg-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, rgba(30,200,212,.35), rgba(255,154,69,.35)); transition: width .2s; }
+.ms-progress .pg-lab { position: relative; padding: 0 12px; font-size: 12px; line-height: 22px; }
+.ms-body { flex: 1; display: flex; min-height: 0; }
+.ms-left { width: 380px; flex: none; border-right: 1px solid var(--line); display: flex; flex-direction: column; background: var(--bg); }
+.ms-lhead { display: flex; gap: 6px; align-items: center; padding: 10px 12px; }
+.ms-modlist { flex: 1; overflow-y: auto; padding: 0 8px 20px; }
+.ms-right { flex: 1; overflow-y: auto; min-width: 0; padding-bottom: 40px; }
+.ms-welcome { max-width: 720px; margin: 40px auto; padding: 0 20px; }
+.ms-welcome h2 { margin: 0 0 6px; }
+.ms-op { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid #1f232b; }
+.ms-op .nm { flex: 1; min-width: 0; } .ms-op .nm b { display: block; font-weight: 600; overflow-wrap: anywhere; } .ms-op .nm small { color: var(--muted); overflow-wrap: anywhere; }
+.ms-op.ex { opacity: .45; }
+.ms-files { max-height: 520px; overflow-y: auto; margin-top: 8px; }
+.ms-file { display: flex; gap: 8px; align-items: center; padding: 3px 4px; border-radius: 4px; cursor: pointer; }
+.ms-file:hover { background: var(--bg3); }
+.ms-file .fp { flex: 1; min-width: 0; font-family: Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.ft { font-size: 9.5px; font-weight: 700; width: 38px; text-align: center; padding: 1px 0; border-radius: 3px; background: var(--bg4); color: var(--muted); flex: none; }
+.ft-ytd { background: rgba(255,154,69,.15); color: #ffb47a; } .ft-ydr, .ft-yft, .ft-ydd { background: rgba(124,92,255,.18); color: #b9a6ff; }
+.ft-ymap, .ft-ytyp { background: rgba(61,220,132,.13); color: var(--ok); } .ft-xml, .ft-meta, .ft-dat, .ft-ymt { background: rgba(30,200,212,.13); color: var(--accent); }
+.ft-rpf { background: rgba(255,77,106,.14); color: var(--danger); }
+.cf-mod { display: flex; gap: 8px; align-items: center; } .cf-mod.win { color: var(--ok); font-weight: 600; }
+body.dropping #ms::after { content: "Hier ablegen – Dateien werden in den Arbeitsordner kopiert"; position: fixed; inset: 60px 20px 40px; border: 3px dashed var(--accent); border-radius: 16px;
+  background: rgba(13,14,17,.85); display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: var(--accent); z-index: 70; pointer-events: none; }

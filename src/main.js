@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, protocol, nativeImage, Menu 
 const path = require('path');
 const fs = require('fs');
 const backend = require('./backend');
+const modstudio = require('./modstudio');
 
 if (process.env.VPS_USERDATA) app.setPath('userData', process.env.VPS_USERDATA);
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
@@ -45,6 +46,7 @@ app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(
 app.whenReady().then(() => {
   const dataDir = process.env.VPS_DATADIR || path.join(app.getPath('documents'), 'VELOX Preset Studio');
   backend.init({ settingsFile: path.join(app.getPath('userData'), 'settings.json'), dataDir, nativeImage });
+  modstudio.init({ settings: backend.settings, save: backend.saveSettings, progress: (p) => { if (win && !win.isDestroyed()) win.webContents.send('ms-progress', p); } });
   protocol.handle('vps', (req) => {
     const u = new URL(req.url);
     try {
@@ -111,7 +113,7 @@ function startControl() {
           const name = b.name || (list[0] && list[0].name);
           if (!name) throw new Error('Keine Screenshots vorhanden');
           out = { file: path.join((await backend.api('state')).shotsDir, path.basename(name)), name };
-        } else out = await backend.api(r, q, b);
+        } else out = r.startsWith('ms/') ? await modstudio.api(r, q, b) : await backend.api(r, q, b);
         reply(200, out ?? { ok: true });
       } catch (e) { reply(400, { error: String(e.message || e) }); }
     });
@@ -134,7 +136,7 @@ app.on('window-all-closed', () => app.quit());
 
 // ------------------------------------------------------------ IPC
 ipcMain.handle('api', async (_e, route, q, body) => {
-  try { return { ok: true, data: await backend.api(route, q || {}, body || null) }; }
+  try { return { ok: true, data: route.startsWith('ms/') ? await modstudio.api(route, q || {}, body || {}) : await backend.api(route, q || {}, body || null) }; }
   catch (e) { return { ok: false, error: String(e.message || e) }; }
 });
 ipcMain.handle('app:info', () => ({ version: app.getVersion(), packaged: app.isPackaged }));
@@ -149,6 +151,14 @@ ipcMain.handle('app:pickPreset', async () => {
 ipcMain.handle('app:saveZip', async (_e, name) => {
   const r = await dialog.showSaveDialog(win, { title: 'Preset teilen', defaultPath: path.join(app.getPath('desktop'), name), filters: [{ name: 'ZIP', extensions: ['zip'] }] });
   return r.canceled ? null : r.filePath;
+});
+ipcMain.handle('app:pickFiles', async (_e, opts) => {
+  const r = await dialog.showOpenDialog(win, { title: opts?.title || 'Dateien wählen', properties: ['openFile', 'multiSelections'], filters: opts?.filters || [] });
+  return r.canceled ? [] : r.filePaths;
+});
+ipcMain.handle('app:pickDir', async (_e, title) => {
+  const r = await dialog.showOpenDialog(win, { title: title || 'Ordner wählen', properties: ['openDirectory', 'createDirectory'] });
+  return r.canceled ? null : r.filePaths[0];
 });
 ipcMain.handle('app:openPath', (_e, p) => (p ? shell.openPath(p) : ''));
 ipcMain.handle('app:openUrl', (_e, u) => { if (/^https:\/\//.test(u)) shell.openExternal(u); });

@@ -30,6 +30,19 @@ Updates: unten rechts zeigt der Button, ob es eine neue Version gibt – ein Kli
 
 <p align="center"><img src=".github/readme/divider.png" width="100%" alt=""></p>
 
+## 🧩 Mod-Studio (neu)
+
+Beim Start wählst du zwischen **ReShade-Presets** und **Mod-Studio**. Im Mod-Studio stellst du clientseitige Grafikmods (RPF im OIV-Aufbau, `.oiv`) zu einem eigenen Pack zusammen:
+
+- **Eigener Arbeitsordner** – Mods werden hineinkopiert, deine Originale werden nie verändert
+- **RPF / OIV öffnen**, Inhalt durchsuchen, Dateien exportieren (Texturen, Meta-Dateien …)
+- **Konflikte erkennen**: welche Mods dieselbe Spieldatei ersetzen – die Reihenfolge entscheidet, wer gewinnt
+- **Eigene Dateien** (z. B. bearbeitete Texturen) für ein Ziel einsetzen
+- **Pack bauen**: eine einzige RPF mit `assembly.xml` – optional ohne Konflikt-Verlierer
+- Geschützte/verschlüsselte Mods werden erkannt und nicht angetastet
+
+<p align="center"><img src=".github/readme/divider.png" width="100%" alt=""></p>
+
 ## ✨ Was es kann
 
 | | |

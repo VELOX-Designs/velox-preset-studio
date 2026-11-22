@@ -803,4 +803,4 @@ async function api(route, q = {}, b = null) {
 
 function setSetting(k, v) { settings[k] = v; saveSettings(); }
 
-module.exports = { init, api, imageResponse, settings: () => settings, setSetting };
+module.exports = { init, api, imageResponse, settings: () => settings, setSetting, saveSettings: () => saveSettings() };
